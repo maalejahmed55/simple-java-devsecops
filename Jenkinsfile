@@ -4,8 +4,7 @@ pipeline {
     environment {
         APP_NAME = "simple-java-app"
         APP_PORT = "8081"
-        DOCKER_REGISTRY = "docker.io"  // ou votre registry
-        DOCKER_USERNAME = "votre-username-dockerhub"
+        DOCKER_USERNAME = "votre-username-dockerhub"  // ⚠️ REMPLACEZ par VOTRE username
         DOCKER_IMAGE = "${DOCKER_USERNAME}/${APP_NAME}"
         DOCKER_TAG = "${env.BUILD_NUMBER}"
     }
@@ -22,8 +21,6 @@ pipeline {
                 sh '''
                     echo "📁 Préparation des fichiers..."
                     ls -la
-                    echo "🐳 Vérification de Docker..."
-                    docker --version
                 '''
             }
         }
@@ -43,7 +40,7 @@ pipeline {
             steps {
                 sh '''
                     echo "🔍 Analyse SAST avec SmartCube..."
-                    # Votre commande SmartCube existante ici
+                    # Votre commande existante
                     echo "✅ Analyse sécurité terminée"
                 '''
             }
@@ -59,62 +56,59 @@ pipeline {
             }
         }
         
-        // 🆕 ÉTAPE AJOUTÉE : Build Docker Image avec tags
         stage('Build Docker Image') {
             steps {
                 script {
                     echo "🐳 Construction de l'image Docker..."
                     sh """
-                        docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} .
-                        docker tag ${DOCKER_IMAGE}:${DOCKER_TAG} ${DOCKER_IMAGE}:latest
+                        # AVEC SUDO en attendant les permissions
+                        sudo docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} .
+                        sudo docker tag ${DOCKER_IMAGE}:${DOCKER_TAG} ${DOCKER_IMAGE}:latest
                         echo "📊 Images Docker créées:"
-                        docker images | grep ${DOCKER_IMAGE}
+                        sudo docker images | grep ${DOCKER_IMAGE}
                     """
                 }
             }
         }
         
-        // 🆕 ÉTAPE AJOUTÉE : Push vers Docker Hub
         stage('Push to Docker Hub') {
             steps {
                 script {
                     echo "📤 Envoi de l'image vers Docker Hub..."
                     withCredentials([usernamePassword(
-                        credentialsId: 'docker-hub-creds',  // ← À créer dans Jenkins
+                        credentialsId: 'docker-hub-creds',
                         usernameVariable: 'DOCKER_USER',
                         passwordVariable: 'DOCKER_PASS'
                     )]) {
                         sh """
                             echo "🔐 Authentification à Docker Hub..."
-                            echo \$DOCKER_PASS | docker login -u \$DOCKER_USER --password-stdin
+                            echo \$DOCKER_PASS | sudo docker login -u \$DOCKER_USER --password-stdin
                             
                             echo "🚀 Pushing images to Docker Hub..."
-                            docker push ${DOCKER_IMAGE}:${DOCKER_TAG}
-                            docker push ${DOCKER_IMAGE}:latest
+                            sudo docker push ${DOCKER_IMAGE}:${DOCKER_TAG}
+                            sudo docker push ${DOCKER_IMAGE}:latest
                             
-                            echo "✅ Images pushed successfully!"
+                            echo "✅ Images poussées avec succès!"
                         """
                     }
                 }
             }
         }
         
-        // ÉTAPE MODIFIÉE : Déploiement depuis Docker Hub
         stage('Deploy to Docker') {
             steps {
                 script {
-                    echo "🚀 Déploiement de l'application depuis Docker Hub..."
+                    echo "🚀 Déploiement de l'application..."
                     sh """
                         echo "🧹 Nettoyage des anciens containers..."
-                        docker stop ${APP_NAME} || true
-                        docker rm ${APP_NAME} || true
+                        sudo docker stop ${APP_NAME} || true
+                        sudo docker rm ${APP_NAME} || true
                         
-                        # 🆕 Pull de l'image depuis Docker Hub au lieu de l'image locale
                         echo "📥 Téléchargement de l'image depuis Docker Hub..."
-                        docker pull ${DOCKER_IMAGE}:latest
+                        sudo docker pull ${DOCKER_IMAGE}:latest
                         
                         echo "🎯 Démarrage du nouveau container..."
-                        docker run -d \\
+                        sudo docker run -d \\
                             -p ${APP_PORT}:8080 \\
                             --name ${APP_NAME} \\
                             ${DOCKER_IMAGE}:latest
@@ -132,13 +126,13 @@ pipeline {
                     echo "🏥 Vérification du déploiement..."
                     sh """
                         echo "📊 Statut du container:"
-                        docker ps | grep ${APP_NAME} || echo "❌ Container non trouvé"
+                        sudo docker ps | grep ${APP_NAME} || echo "❌ Container non trouvé"
                         
                         echo "🌐 Test de l'application..."
                         curl -f http://localhost:${APP_PORT}/ || exit 1
                         
                         echo "📋 Derniers logs:"
-                        docker logs ${APP_NAME} --tail 10
+                        sudo docker logs ${APP_NAME} --tail 10
                         
                         echo "✅ Santé de l'application vérifiée!"
                     """
@@ -152,17 +146,11 @@ pipeline {
             echo "📊 Nettoyage des ressources..."
             sh '''
                 echo "🧹 Nettoyage Docker..."
-                docker system prune -f || true
-                
-                echo "🏷️ Images disponibles sur Docker Hub:"
-                echo "  - ${DOCKER_IMAGE}:${DOCKER_TAG}"
-                echo "  - ${DOCKER_IMAGE}:latest"
+                sudo docker system prune -f || true
             '''
         }
         success {
-            echo "✅ Déploiement réussi!"
-            echo "🌐 Application: http://localhost:${APP_PORT}"
-            echo "🐳 Images disponibles sur Docker Hub"
+            echo "✅ Déploiement réussi! Application disponible sur http://localhost:${APP_PORT}"
         }
         failure {
             echo "❌ Échec du déploiement"
