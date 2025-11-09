@@ -2,21 +2,21 @@ pipeline {
     agent any
     
     environment {
-        // Variables d'environnement pour plus de flexibilité
         APP_NAME = "simple-java-app"
         APP_PORT = "8081"
-        DOCKER_IMAGE = "${APP_NAME}:latest"
+        DOCKER_REGISTRY = "docker.io"  // ou votre registry
+        DOCKER_USERNAME = "votre-username-dockerhub"
+        DOCKER_IMAGE = "${DOCKER_USERNAME}/${APP_NAME}"
+        DOCKER_TAG = "${env.BUILD_NUMBER}"
     }
     
     stages {
-        // ÉTAPE 1: Récupération du code
         stage('Checkout SCM') {
             steps {
                 checkout scm
             }
         }
         
-        // ÉTAPE 2: Préparation
         stage('Checkout') {
             steps {
                 sh '''
@@ -28,7 +28,6 @@ pipeline {
             }
         }
         
-        // ÉTAPE 3: Construction de l'application
         stage('Build') {
             steps {
                 sh '''
@@ -40,7 +39,6 @@ pipeline {
             }
         }
         
-        // ÉTAPE 4: Analyse de sécurité
         stage('SAST - SmartCube Analysis') {
             steps {
                 sh '''
@@ -51,7 +49,6 @@ pipeline {
             }
         }
         
-        // ÉTAPE 5: Tests
         stage('Test') {
             steps {
                 sh '''
@@ -62,37 +59,65 @@ pipeline {
             }
         }
         
-        // ÉTAPE 6: Construction image Docker
+        // 🆕 ÉTAPE AJOUTÉE : Build Docker Image avec tags
         stage('Build Docker Image') {
             steps {
                 script {
                     echo "🐳 Construction de l'image Docker..."
                     sh """
-                        docker build -t ${DOCKER_IMAGE} .
+                        docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} .
+                        docker tag ${DOCKER_IMAGE}:${DOCKER_TAG} ${DOCKER_IMAGE}:latest
                         echo "📊 Images Docker créées:"
-                        docker images | grep ${APP_NAME}
+                        docker images | grep ${DOCKER_IMAGE}
                     """
                 }
             }
         }
         
-        // ÉTAPE 7: Déploiement
+        // 🆕 ÉTAPE AJOUTÉE : Push vers Docker Hub
+        stage('Push to Docker Hub') {
+            steps {
+                script {
+                    echo "📤 Envoi de l'image vers Docker Hub..."
+                    withCredentials([usernamePassword(
+                        credentialsId: 'docker-hub-creds',  // ← À créer dans Jenkins
+                        usernameVariable: 'DOCKER_USER',
+                        passwordVariable: 'DOCKER_PASS'
+                    )]) {
+                        sh """
+                            echo "🔐 Authentification à Docker Hub..."
+                            echo \$DOCKER_PASS | docker login -u \$DOCKER_USER --password-stdin
+                            
+                            echo "🚀 Pushing images to Docker Hub..."
+                            docker push ${DOCKER_IMAGE}:${DOCKER_TAG}
+                            docker push ${DOCKER_IMAGE}:latest
+                            
+                            echo "✅ Images pushed successfully!"
+                        """
+                    }
+                }
+            }
+        }
+        
+        // ÉTAPE MODIFIÉE : Déploiement depuis Docker Hub
         stage('Deploy to Docker') {
             steps {
                 script {
-                    echo "🚀 Déploiement de l'application..."
+                    echo "🚀 Déploiement de l'application depuis Docker Hub..."
                     sh """
-                        # Arrêter et nettoyer l'ancien container
                         echo "🧹 Nettoyage des anciens containers..."
                         docker stop ${APP_NAME} || true
                         docker rm ${APP_NAME} || true
                         
-                        # Démarrer le nouveau container
+                        # 🆕 Pull de l'image depuis Docker Hub au lieu de l'image locale
+                        echo "📥 Téléchargement de l'image depuis Docker Hub..."
+                        docker pull ${DOCKER_IMAGE}:latest
+                        
                         echo "🎯 Démarrage du nouveau container..."
                         docker run -d \\
                             -p ${APP_PORT}:8080 \\
                             --name ${APP_NAME} \\
-                            ${DOCKER_IMAGE}
+                            ${DOCKER_IMAGE}:latest
                         
                         echo "⏳ Attente du démarrage (30 secondes)..."
                         sleep 30
@@ -101,21 +126,17 @@ pipeline {
             }
         }
         
-        // ÉTAPE 8: Vérification
         stage('Health Check') {
             steps {
                 script {
                     echo "🏥 Vérification du déploiement..."
                     sh """
-                        # Vérifier le statut du container
                         echo "📊 Statut du container:"
                         docker ps | grep ${APP_NAME} || echo "❌ Container non trouvé"
                         
-                        # Vérifier que l'application répond
                         echo "🌐 Test de l'application..."
                         curl -f http://localhost:${APP_PORT}/ || exit 1
                         
-                        # Vérifier les logs
                         echo "📋 Derniers logs:"
                         docker logs ${APP_NAME} --tail 10
                         
@@ -133,25 +154,18 @@ pipeline {
                 echo "🧹 Nettoyage Docker..."
                 docker system prune -f || true
                 
-                echo "📈 Résumé du déploiement:"
-                docker ps -a | grep simple-java-app || echo "Aucun container simple-java-app"
+                echo "🏷️ Images disponibles sur Docker Hub:"
+                echo "  - ${DOCKER_IMAGE}:${DOCKER_TAG}"
+                echo "  - ${DOCKER_IMAGE}:latest"
             '''
         }
         success {
-            echo "✅ Déploiement réussi! Application disponible sur http://localhost:${APP_PORT}"
-            sh '''
-                echo "🎉 URL de l'application: http://localhost:8081"
-                echo "🔍 Pour voir les logs: docker logs -f simple-java-app"
-            '''
+            echo "✅ Déploiement réussi!"
+            echo "🌐 Application: http://localhost:${APP_PORT}"
+            echo "🐳 Images disponibles sur Docker Hub"
         }
         failure {
             echo "❌ Échec du déploiement"
-            sh '''
-                echo "🔍 Debug information:"
-                docker ps -a
-                docker images | grep simple-java-app
-                netstat -tulpn | grep 8081 || echo "Port 8081 non utilisé"
-            '''
         }
     }
 }
