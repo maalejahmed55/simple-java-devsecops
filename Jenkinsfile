@@ -4,7 +4,7 @@ pipeline {
     environment {
         APP_NAME = "simple-java-app"
         APP_PORT = "8081"
-        DOCKER_USERNAME = "maalejahmed"  // ✅ REMPLACEZ par votre username Docker Hub
+        DOCKER_USERNAME = "maalejahmed"
         DOCKER_IMAGE = "${DOCKER_USERNAME}/${APP_NAME}"
         DOCKER_TAG = "${env.BUILD_NUMBER}"
     }
@@ -58,7 +58,7 @@ pipeline {
                         echo "🔍 Pré-vérification..."
                         echo "📁 Fichiers sources:"
                         find src -name "*.java" -type f | head -10
-                        echo "📄 pom.xml présent: $(ls pom.xml && echo '✅' || echo '❌')"
+                        echo "📄 pom.xml présent: \$(ls pom.xml && echo '✅' || echo '❌')"
                         
                         echo "🐳 Lancement du build Docker..."
                         docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} .
@@ -108,7 +108,7 @@ pipeline {
                     )]) {
                         sh """
                             echo "🔐 Authentification à Docker Hub..."
-                            echo \$DOCKER_PASS | docker login -u \$DOCKER_USER --password-stdin
+                            echo \${DOCKER_PASS} | docker login -u \${DOCKER_USER} --password-stdin
                             
                             echo "🚀 Pushing de la version ${DOCKER_TAG}..."
                             docker push ${DOCKER_IMAGE}:${DOCKER_TAG}
@@ -134,10 +134,7 @@ pipeline {
                         docker rm ${APP_NAME} || true
                         
                         echo "🎯 Démarrage du nouveau container..."
-                        docker run -d \\
-                            -p ${APP_PORT}:8080 \\
-                            --name ${APP_NAME} \\
-                            ${DOCKER_IMAGE}:latest
+                        docker run -d -p ${APP_PORT}:8080 --name ${APP_NAME} ${DOCKER_IMAGE}:latest
                         
                         echo "⏳ Attente du démarrage (40 secondes)..."
                         sleep 40
@@ -197,24 +194,10 @@ pipeline {
                 echo "📈 Résumé:"
                 echo "🐳 Image: ${DOCKER_IMAGE}:${DOCKER_TAG}"
                 echo "🌐 Application: http://localhost:${APP_PORT}"
-                echo "📊 Build: ${env.BUILD_URL}"
             '''
         }
         success {
             echo "🎉 PIPELINE RÉUSSI!"
-            script {
-                // Notification optionnelle
-                slackSend(
-                    channel: '#deployments',
-                    color: 'good',
-                    message: """✅ Déploiement réussi!
-*Application*: ${APP_NAME}
-*Version*: ${DOCKER_TAG}  
-*Image Docker*: ${DOCKER_IMAGE}:${DOCKER_TAG}
-*URL*: http://localhost:${APP_PORT}
-*Build*: ${env.BUILD_URL}"""
-                )
-            }
         }
         failure {
             echo "❌ PIPELINE EN ÉCHEC"
@@ -223,17 +206,7 @@ pipeline {
                     echo "🔍 Debug information:"
                     docker ps -a
                     docker images | grep ${DOCKER_IMAGE} || echo "Aucune image trouvée"
-                    netstat -tulpn | grep ${APP_PORT} || echo "Port ${APP_PORT} non utilisé"
                 '''
-                // Notification optionnelle
-                slackSend(
-                    channel: '#alerts',
-                    color: 'danger',
-                    message: """🚨 Échec du déploiement
-*Application*: ${APP_NAME}
-*Build*: ${env.BUILD_URL}
-*Dernière étape*: ${currentBuild.currentResult}"""
-                )
             }
         }
     }

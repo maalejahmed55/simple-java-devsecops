@@ -4,3 +4,5 @@ target/
 *.log
 .DS_Store
 .idea
+README.md
+TEST.md
