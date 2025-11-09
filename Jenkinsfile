@@ -1,21 +1,49 @@
 pipeline {
     agent any
     
+    environment {
+        APP_NAME = "simple-java-devsecops"
+    }
+    
     stages {
-        stage('Test Connection') {
+        stage('Checkout') {
             steps {
-                echo "🎉 CONNECTION TEST - Démarrage du pipeline"
-                sh 'pwd'
-                sh 'ls -la'
-                sh 'echo "Java version:" && java -version'
-                sh 'echo "Maven version:" && mvn --version || echo "Maven non installé"'
+                checkout scm
+            }
+        }
+        
+        stage('Build') {
+            steps {
+                sh 'mvn clean compile'
+            }
+        }
+        
+        stage('SAST - SonarQube Analysis') {
+            steps {
+                script {
+                    withSonarQubeEnv('sonar-server') {
+                        sh '''
+                            echo "🔍 Analyse SAST avec SonarQube..."
+                            mvn sonar:sonar \
+                              -Dsonar.projectKey=simple-java-devsecops \
+                              -Dsonar.projectName="Simple Java DevSecOps" \
+                              -Dsonar.host.url=http://localhost:9000
+                        '''
+                    }
+                }
+            }
+        }
+        
+        stage('Test') {
+            steps {
+                sh 'echo "Tests unitaires..."'
             }
         }
     }
     
     post {
         always {
-            echo "✅ Test terminé - Build ${env.BUILD_NUMBER}"
+            echo "🏁 Pipeline terminé"
         }
     }
 }
