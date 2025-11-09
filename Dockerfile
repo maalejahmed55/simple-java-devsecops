@@ -1,11 +1,10 @@
-# Version minimaliste garantie
-FROM alpine:3.18
-
-# Installation manuelle de Java
-RUN apk add --no-cache openjdk17-jre
+# Dockerfile corrigé
+FROM eclipse-temurin:17-jre
 
 WORKDIR /app
+
+# Copier le JAR directement (le build se fait avant dans Jenkins)
 COPY target/*.jar app.jar
+
 EXPOSE 8080
 ENTRYPOINT ["java", "-jar", "app.jar"]
-# Fin du Dockerfile
