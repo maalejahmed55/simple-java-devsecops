@@ -7,14 +7,11 @@ WORKDIR /app
 COPY pom.xml .
 COPY src ./src
 
-# Télécharger les dépendances (cache Docker)
-RUN mvn dependency:go-offline
-
 # Builder l'application
 RUN mvn clean package -DskipTests
 
-# Étape 2 : Image finale légère
-FROM eclipse-temurin:17-jre-slim
+# Étape 2 : Image finale
+FROM eclipse-temurin:17-jre
 
 WORKDIR /app
 
