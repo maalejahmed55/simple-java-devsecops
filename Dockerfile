@@ -1,9 +1,26 @@
-FROM eclipse-temurin:17-jre
+# Étape 1 : Build de l'application
+FROM maven:3.8.4-openjdk-17 AS builder
 
 WORKDIR /app
 
-# LIGNE CRITIQUE - utiliser le nom EXACT du fichier
-COPY target/simple-java-devsecops-1.0.0.jar app.jar
+# Copier les fichiers du projet
+COPY pom.xml .
+COPY src ./src
+
+# Télécharger les dépendances (cache Docker)
+RUN mvn dependency:go-offline
+
+# Builder l'application
+RUN mvn clean package -DskipTests
+
+# Étape 2 : Image finale légère
+FROM eclipse-temurin:17-jre-slim
+
+WORKDIR /app
+
+# Copier seulement le JAR depuis l'étape de build
+COPY --from=builder /app/target/simple-java-devsecops-1.0.0.jar app.jar
 
 EXPOSE 8080
+
 ENTRYPOINT ["java", "-jar", "app.jar"]
