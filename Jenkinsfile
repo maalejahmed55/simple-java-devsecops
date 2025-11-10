@@ -281,7 +281,7 @@ EOR
                 --
                 Pipeline DevSecOps Automatisé
                 """,
-                to: "maalejahmed5@gmail.com",
+                to: "maalejahmed55@gmail.com",
                 attachLog: true
             )
         }
