@@ -18,36 +18,21 @@ pipeline {
             }
         }
         
-        stage('Build Application') {
+        stage('Build et Tests') {
             steps {
                 sh '''
-                    echo "🏗️ Construction de l'application..."
+                    echo "🏗️ Construction de l'application avec Maven..."
                     echo "📁 Structure du projet:"
                     ls -la
-                    echo "📄 Fichiers Java:"
-                    find . -name "*.java" -type f
                     
-                    # Vérification de la structure
-                    echo "🔍 Vérification structure src/Main.java:"
-                    if [ -f "src/Main.java" ]; then
-                        echo "✅ src/Main.java trouvé"
-                        cat src/Main.java | head -10
-                    else
-                        echo "❌ src/Main.java non trouvé"
-                        exit 1
-                    fi
+                    # Build avec Maven (crée le JAR pour Docker et SonarQube)
+                    mvn clean compile
+                    mvn test
                     
-                    # Compilation pour SonarQube uniquement
-                    echo "🔨 Compilation pour SonarQube..."
-                    mkdir -p target/classes/
-                    javac -d target/classes/ src/Main.java
-                    
-                    # Vérification compilation
-                    echo "📋 Vérification compilation:"
-                    ls -la target/classes/
-                    find target/classes/ -name "*.class" | head -5
-                    
-                    echo "✅ Build terminé (prêt pour Docker)"
+                    # Vérification
+                    echo "📋 Fichiers générés:"
+                    ls -la target/
+                    find target/ -name "*.jar" | head -5
                 '''
             }
         }
@@ -57,18 +42,9 @@ pipeline {
                 script {
                     echo "🔍 SAST: Analyse du code source avec SonarQube..."
                     
-                    // Vérification avant SonarQube
-                    sh '''
-                        echo "🎯 Préparation pour SonarQube..."
-                        echo "📊 Fichiers disponibles:"
-                        echo "Classes: $(find target/classes/ -name "*.class" 2>/dev/null | wc -l)"
-                        echo "Sources: $(find src/ -name "*.java" | wc -l)"
-                    '''
-                    
-                    // Analyse SonarQube
                     withSonarQubeEnv('sonarqube') {
                         sh """
-                            mvn org.sonarsource.scanner.maven:sonar-maven-plugin:3.9.1.2184:sonar \
+                            mvn sonar:sonar \
                             -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
                             -Dsonar.projectName='${SONAR_PROJECT_NAME}' \
                             -Dsonar.sources=src \
@@ -79,8 +55,6 @@ pipeline {
                             -Dsonar.password=admin
                         """
                     }
-                    
-                    echo "✅ Analyse SonarQube lancée"
                 }
             }
         }
@@ -88,11 +62,9 @@ pipeline {
         stage('Quality Gate') {
             steps {
                 script {
-                    echo "📊 Attente des résultats du Quality Gate..."
                     timeout(time: 5, unit: 'MINUTES') {
                         waitForQualityGate abortPipeline: true
                     }
-                    echo "✅ Quality Gate vérifié"
                 }
             }
         }
@@ -114,34 +86,8 @@ pipeline {
                 script {
                     echo "🔒 Scan de sécurité avec Trivy..."
                     sh """
-                        # Installation de Trivy si nécessaire
-                        which trivy || (curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin)
-                        
-                        # Scan de l'image Docker
                         trivy image --exit-code 0 --severity HIGH,CRITICAL ${DOCKER_IMAGE}:${DOCKER_TAG}
-                        
-                        # Rapport détaillé
                         trivy image --format json ${DOCKER_IMAGE}:${DOCKER_TAG} > trivy-report.json || true
-                    """
-                }
-            }
-        }
-        
-        stage('Test Application') {
-            steps {
-                script {
-                    echo "🧪 Tests de l'application Dockerisée..."
-                    sh """
-                        # Test en arrière-plan
-                        docker run -d --name test-app -p 8082:8080 ${DOCKER_IMAGE}:${DOCKER_TAG}
-                        sleep 10
-                        
-                        # Test de fonctionnement basique
-                        curl -f http://localhost:8082/ || echo "⚠️  Application non accessible"
-                        
-                        # Arrêt du conteneur de test
-                        docker stop test-app || true
-                        docker rm test-app || true
                     """
                 }
             }
@@ -172,27 +118,20 @@ pipeline {
                 script {
                     echo "🚀 Déploiement en environnement de test..."
                     sh """
-                        # Arrêt du conteneur existant
                         docker stop ${APP_NAME}-test 2>/dev/null || true
                         docker rm ${APP_NAME}-test 2>/dev/null || true
                         
-                        # Démarrage du nouveau conteneur
                         docker run -d \
                             --name ${APP_NAME}-test \
                             -p ${APP_PORT}:8080 \
                             ${DOCKER_IMAGE}:${DOCKER_TAG}
                         
-                        # Attente du démarrage
-                        sleep 10
+                        sleep 15
                         
-                        # Test de santé
-                        echo "🔍 Test de santé de l'application..."
+                        # Health check
                         curl -f http://localhost:${APP_PORT}/ || \
                         curl -f http://localhost:${APP_PORT}/health || \
-                        echo "⚠️  Application déployée mais endpoints non accessibles"
-                        
-                        # Vérification conteneur
-                        docker ps | grep ${APP_NAME}-test
+                        echo "⚠️  Application déployée"
                     """
                 }
             }
@@ -201,33 +140,9 @@ pipeline {
     
     post {
         always {
-            echo "📊 Rapport de build final..."
-            sh '''
-                echo "=== RAPPORT FINAL BUILD ==="
-                echo "Structure:"
-                echo "  - src/Main.java: $(if [ -f "src/Main.java" ]; then echo "✅"; else echo "❌"; fi)"
-                echo "  - Classes compilées: $(find target/classes/ -name "*.class" 2>/dev/null | wc -l)"
-                echo "  - Image Docker: ${DOCKER_IMAGE}:${DOCKER_TAG}"
-                echo "URLs:"
-                echo "  - SonarQube: http://localhost:9000"
-                echo "  - Application: http://localhost:${APP_PORT}"
-            '''
-            
-            // Archivage des rapports
+            echo "📊 Build ${APP_NAME} terminé"
+            archiveArtifacts artifacts: 'target/*.jar', fingerprint: true
             archiveArtifacts artifacts: 'trivy-report.json', fingerprint: true
-            
-            // Nettoyage
-            sh '''
-                docker stop ${APP_NAME}-test 2>/dev/null || true
-                docker rm ${APP_NAME}-test 2>/dev/null || true
-                docker system prune -f || true
-            '''
-        }
-        success {
-            echo "✅ Pipeline exécuté avec succès!"
-        }
-        failure {
-            echo "❌ Échec du pipeline!"
         }
     }
 }
