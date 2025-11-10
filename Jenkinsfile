@@ -238,7 +238,7 @@ EOR
                 --
                 Pipeline DevSecOps Automatisé
                 """,
-                to: "maalejahmed5@gmail.com",
+                to: "maalejahmed55@gmail.com",  // ✅ CORRIGÉ
                 attachLog: false
             )
         }
@@ -281,7 +281,7 @@ EOR
                 --
                 Pipeline DevSecOps Automatisé
                 """,
-                to: "maalejahmed55@gmail.com",
+                to: "maalejahmed55@gmail.com",  // ✅ CORRIGÉ
                 attachLog: true
             )
         }
@@ -320,7 +320,7 @@ EOR
                 --
                 Pipeline DevSecOps Automatisé
                 """,
-                to: "maalejahmed5@gmail.com",
+                to: "maalejahmed55@gmail.com",  // ✅ CORRIGÉ
                 attachLog: false
             )
         }
