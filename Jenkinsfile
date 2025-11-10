@@ -119,6 +119,6 @@ pipeline {
         always {
             echo "📊 Build terminé"
             echo "🔗 SonarQube: ${SONAR_HOST}/dashboard?id=${SONAR_PROJECT_KEY}"
-        }
+         }
     }
 }
