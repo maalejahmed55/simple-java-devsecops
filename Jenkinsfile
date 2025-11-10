@@ -24,28 +24,19 @@ pipeline {
                 sh '''
                     echo "🏗️ Construction de l'application..."
                     
-                    # Vérification du fichier source
                     if [ -f "src/Main.java" ]; then
                         echo "✅ src/Main.java trouvé"
-                        echo "📄 Contenu (premières lignes):"
                         head -10 src/Main.java || echo "Impossible de lire le fichier"
                     else
                         echo "❌ src/Main.java non trouvé"
-                        echo "📁 Contenu du dossier:"
                         ls -la src/ || echo "Dossier src/ inexistant"
                         exit 1
                     fi
                     
-                    # Compilation
-                    echo "🔨 Compilation Java..."
                     mkdir -p target/classes/
                     javac -d target/classes/ src/Main.java
-                    
-                    # Création du JAR
-                    echo "📦 Création du JAR..."
                     jar cfe target/simple-java-devsecops-1.0.0.jar Main -C target/classes/ .
                     
-                    # Vérification
                     echo "📋 Résultats build:"
                     ls -la target/classes/ || echo "Aucune classe compilée"
                     ls -la target/*.jar || echo "Aucun JAR créé"
@@ -60,7 +51,6 @@ pipeline {
                     
                     withCredentials([string(credentialsId: 'sonarqube-token', variable: 'SONAR_TOKEN')]) {
                         sh """
-                            echo "🚀 Lancement analyse SonarQube..."
                             mvn sonar:sonar \\
                             -Dsonar.projectKey=${SONAR_PROJECT_KEY} \\
                             -Dsonar.projectName='${SONAR_PROJECT_NAME}' \\
@@ -80,17 +70,14 @@ pipeline {
                     echo "🔍 SCA: Analyse des dépendances avec OWASP..."
                     
                     sh '''
-                        # Vérification des fichiers à analyser
                         echo "📁 Fichiers détectés:"
                         find . -name "pom.xml" -o -name "*.jar" -o -name "*.war" | head -10 || echo "Aucun fichier de dépendance détecté"
                         
-                        # Création du dossier de rapports
                         mkdir -p reports/sca/
                         
-                        # Méthode 1: Essayer Docker d'abord
+                        # Vérifier si Docker est disponible
                         if command -v docker >/dev/null 2>&1; then
                             echo "🐳 Méthode Docker sélectionnée"
-                            
                             docker run --rm \
                                 -v "$(pwd)":/src \
                                 -v "$(pwd)/reports/sca":/reports \
@@ -102,31 +89,15 @@ pipeline {
                                 --format HTML \
                                 --format JSON \
                                 --failOnCVSS 0 \
-                                --enableExperimental \
-                                --noupdate
-                                
-                        # Méthode 2: Essayer OWASP natif
-                        elif command -v dependency-check >/dev/null 2>&1; then
-                            echo "🛠️ Méthode OWASP native sélectionnée"
-                            
-                            dependency-check \
-                                --project "simple-java-devsecops" \
-                                --scan "." \
-                                --out reports/sca/ \
-                                --format HTML \
-                                --format JSON \
-                                --failOnCVSS 0 \
                                 --enableExperimental
-                                
-                        # Méthode 3: Fallback - rapport basique
                         else
-                            echo "📝 Méthode basique (OWASP non disponible)"
-                            
-                            cat > reports/sca/dependency-check-report.html << EOF
+                            echo "📝 Méthode basique (Docker non disponible)"
+                            # Créer un rapport HTML basique
+                            cat > reports/sca/dependency-check-report.html << EOR
                             <!DOCTYPE html>
                             <html>
                             <head>
-                                <title>SCA Report - OWASP Dependency-Check Non Disponible</title>
+                                <title>SCA Report - OWASP Dependency-Check</title>
                                 <style>
                                     body { font-family: Arial, sans-serif; margin: 40px; }
                                     .header { background: #f0f0f0; padding: 20px; border-radius: 5px; }
@@ -142,11 +113,11 @@ pipeline {
                                 </div>
                                 
                                 <div class="warning">
-                                    <h2>⚠️ OWASP Dependency-Check Non Disponible</h2>
-                                    <p>Pour une analyse SCA complète, installez:</p>
+                                    <h2>⚠️ OWASP Dependency-Check via Docker non disponible</h2>
+                                    <p>Pour une analyse SCA complète:</p>
                                     <ul>
-                                        <li><strong>Docker:</strong> docker run owasp/dependency-check:latest</li>
-                                        <li><strong>OWASP Native:</strong> Téléchargez depuis https://owasp.org/www-project-dependency-check/</li>
+                                        <li>Installez Docker sur le serveur Jenkins</li>
+                                        <li>Ou installez OWASP Dependency-Check manuellement</li>
                                     </ul>
                                 </div>
                                 
@@ -156,7 +127,7 @@ pipeline {
                                 </div>
                             </body>
                             </html>
-                            EOF
+EOR
                         fi
                         
                         echo "✅ Analyse SCA terminée"
@@ -166,7 +137,6 @@ pipeline {
             
             post {
                 always {
-                    // Publication du rapport HTML dans Jenkins
                     publishHTML([
                         allowMissing: true,
                         alwaysLinkToLastBuild: true,
@@ -186,7 +156,6 @@ pipeline {
                     echo "🐳 Construction de l'image Docker..."
                     sh """
                         docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} .
-                        echo "📸 Images disponibles:"
                         docker images | grep ${DOCKER_IMAGE} || echo "Aucune image trouvée"
                     """
                 }
@@ -198,17 +167,12 @@ pipeline {
                 script {
                     echo "🔒 Scan de sécurité du container..."
                     sh """
-                        # Installation Trivy si nécessaire
                         which trivy >/dev/null 2>&1 || (
-                            echo "📥 Installation de Trivy..."
                             curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
                         )
                         
-                        # Scan de l'image Docker
-                        echo "🔍 Scan des vulnérabilités container..."
                         trivy image --exit-code 0 --no-progress --severity HIGH,CRITICAL ${DOCKER_IMAGE}:${DOCKER_TAG} && echo "✅ Scan réussi" || echo "⚠️  Vulnérabilités détectées"
                         
-                        # Rapport détaillé
                         trivy image --format json --output reports/trivy-container-scan.json ${DOCKER_IMAGE}:${DOCKER_TAG} 2>/dev/null || true
                     """
                 }
@@ -220,21 +184,13 @@ pipeline {
                 script {
                     echo "🚀 Déploiement en environnement de test..."
                     sh """
-                        # Nettoyage
                         docker stop ${APP_NAME}-test 2>/dev/null || true
                         docker rm ${APP_NAME}-test 2>/dev/null || true
                         
-                        # Déploiement
-                        docker run -d \
-                            --name ${APP_NAME}-test \
-                            -p ${APP_PORT}:8080 \
-                            ${DOCKER_IMAGE}:${DOCKER_TAG}
+                        docker run -d --name ${APP_NAME}-test -p ${APP_PORT}:8080 ${DOCKER_IMAGE}:${DOCKER_TAG}
                         
-                        # Health check
                         sleep 10
                         curl -f http://localhost:${APP_PORT}/ || echo "⚠️  Application déployée (health check échoué)"
-                        
-                        echo "✅ Déploiement terminé"
                     """
                 }
             }
@@ -250,11 +206,9 @@ pipeline {
             echo "🐳 Container: ${DOCKER_IMAGE}:${DOCKER_TAG}"
             echo "🌐 Application: http://localhost:${APP_PORT}"
             
-            // Archivage des artefacts
             archiveArtifacts artifacts: 'target/*.jar', fingerprint: true
             archiveArtifacts artifacts: 'reports/**/*', fingerprint: true
             
-            // Nettoyage
             sh '''
                 docker stop ${APP_NAME}-test 2>/dev/null || true
                 docker rm ${APP_NAME}-test 2>/dev/null || true
@@ -262,7 +216,6 @@ pipeline {
         }
         success {
             echo "🎉 SUCCÈS - Pipeline DevSecOps complété!"
-            echo "✅ SAST, SCA, Container Security opérationnels"
         }
         failure {
             echo "❌ ÉCHEC - Consultez les logs pour détails"
