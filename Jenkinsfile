@@ -75,7 +75,7 @@ pipeline {
                         sh """
                             mvn sonar:sonar \
                             -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
-                            -Dsonar.projectName='${SONAR_PROJECT_NAME}' \
+                            -Dsonar.projectName='${Simple Java DevSecOps}' \
                             -Dsonar.sources=src/main/java \
                             -Dsonar.java.binaries=target/classes \
                             -Dsonar.sourceEncoding=UTF-8 \
