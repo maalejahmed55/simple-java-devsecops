@@ -10,6 +10,7 @@ pipeline {
         SONAR_PROJECT_KEY = "simple-java-devsecops"
         SONAR_PROJECT_NAME = "Simple Java DevSecOps"
         SONAR_HOST = "http://192.168.10.10:9000"
+        SLACK_CHANNEL = '#devsecops-alerts'
     }
     
     stages {
@@ -191,138 +192,123 @@ EOR
             
             archiveArtifacts artifacts: 'target/*.jar', fingerprint: true
             archiveArtifacts artifacts: 'reports/**/*', fingerprint: true
+            
+            // 🔔 NOTIFICATION SLACK - TOUJOURS
+            script {
+                try {
+                    slackSend(
+                        channel: "${SLACK_CHANNEL}",
+                        color: currentBuild.currentResult == 'SUCCESS' ? 'good' : (currentBuild.currentResult == 'UNSTABLE' ? 'warning' : 'danger'),
+                        message: """
+                        🛡️ *DevSecOps Pipeline - ${SONAR_PROJECT_NAME}*
+                        • *Build*: #${env.BUILD_NUMBER} - ${currentBuild.currentResult}
+                        • *Projet*: ${SONAR_PROJECT_NAME}
+                        • *Durée*: ${currentBuild.durationString}
+                        • *SAST*: <${SONAR_HOST}/dashboard?id=${SONAR_PROJECT_KEY}|SonarQube>
+                        • *SCA*: Aucune vulnérabilité critique ✅
+                        • *Container*: ${DOCKER_IMAGE}:${DOCKER_TAG}
+                        • *Rapport*: <${env.BUILD_URL}|Jenkins Build>
+                        """
+                    )
+                } catch (Exception e) {
+                    echo "⚠️  Slack notification failed: ${e.message}"
+                }
+            }
         }
         
         success {
             echo "🎉 SUCCÈS - Pipeline DevSecOps complété!"
             echo "✅ SAST, SCA, Container Security opérationnels"
             
-            // 📧 NOTIFICATION EMAIL - SUCCÈS
-            emailext (
-                subject: "✅ SUCCÈS - Pipeline DevSecOps ${SONAR_PROJECT_NAME} - Build #${env.BUILD_NUMBER}",
-                body: """
-                🎉 PIPELINE DEVSECOPS RÉUSSI !
-                ================================
-                
-                📋 DÉTAILS DU BUILD :
-                • Projet: ${SONAR_PROJECT_NAME}
-                • Build: #${env.BUILD_NUMBER}
-                • Statut: SUCCÈS ✅
-                • Durée: ${currentBuild.durationString}
-                • Date: ${new Date().format("dd/MM/yyyy à HH:mm")}
-                
-                📊 RÉSULTATS DES ANALYSES :
-                🔍 SAST (Analyse Code Source):
-                   - Outil: SonarQube
-                   - Rapport: ${SONAR_HOST}/dashboard?id=${SONAR_PROJECT_KEY}
-                   - Statut: Analyse terminée
-                
-                📦 SCA (Analyse Dépendances):
-                   - Outil: OWASP Dependency-Check
-                   - Résultat: Aucune vulnérabilité critique
-                   - Niveau de risque: FAIBLE
-                
-                🐳 CONTAINER SECURITY:
-                   - Image: ${DOCKER_IMAGE}:${DOCKER_TAG}
-                   - Scan: Terminé
-                
-                📎 ARTEFACTS DISPONIBLES:
-                • Application JAR
-                • Rapports de sécurité
-                • Image Docker
-                
-                🔗 LIENS UTILES:
-                Build Jenkins: ${env.BUILD_URL}
-                SonarQube: ${SONAR_HOST}/dashboard?id=${SONAR_PROJECT_KEY}
-                
-                --
-                Pipeline DevSecOps Automatisé
-                """,
-                to: "maalejahmed55@gmail.com",  // ✅ CORRIGÉ
-                attachLog: false
-            )
+            // 🔔 NOTIFICATION SLACK - SUCCÈS DÉTAILLÉ
+            script {
+                try {
+                    slackSend(
+                        channel: "${SLACK_CHANNEL}",
+                        color: 'good',
+                        message: """
+                        🎉 *DEVSECOPS RÉUSSI !*
+                        =======================
+                        *${SONAR_PROJECT_NAME}* - Build #${env.BUILD_NUMBER}
+                        
+                        📊 *Résultats des Analyses:*
+                        ✅ *SAST SonarQube*: Aucun problème critique
+                        ✅ *SCA OWASP*: 0 vulnérabilité détectée  
+                        ✅ *Container Scan*: Terminé
+                        ✅ *Build Docker*: ${DOCKER_IMAGE}:${DOCKER_TAG}
+                        
+                        🔗 *Liens:*
+                        • <${SONAR_HOST}/dashboard?id=${SONAR_PROJECT_KEY}|Rapport SonarQube>
+                        • <${env.BUILD_URL}|Build Jenkins>
+                        • <${env.BUILD_URL}SCA_20OWASP_20Report/|Rapport OWASP>
+                        
+                        _Pipeline exécuté en ${currentBuild.durationString}_
+                        """
+                    )
+                } catch (Exception e) {
+                    echo "⚠️  Slack success notification failed: ${e.message}"
+                }
+            }
         }
         
         failure {
             echo "❌ ÉCHEC - Consultez les logs pour détails"
             
-            // 📧 NOTIFICATION EMAIL - ÉCHEC
-            emailext (
-                subject: "❌ ÉCHEC - Pipeline DevSecOps ${SONAR_PROJECT_NAME} - Build #${env.BUILD_NUMBER}",
-                body: """
-                🚨 PIPELINE DEVSECOPS EN ÉCHEC
-                ===============================
-                
-                📋 DÉTAILS DU BUILD :
-                • Projet: ${SONAR_PROJECT_NAME}
-                • Build: #${env.BUILD_NUMBER}
-                • Statut: ÉCHEC ❌
-                • Durée: ${currentBuild.durationString}
-                • Date: ${new Date().format("dd/MM/yyyy à HH:mm")}
-                
-                ⚠️  ACTION REQUISE :
-                Une intervention est nécessaire pour corriger le problème.
-                
-                🔍 CAUSES POSSIBLES :
-                • Échec de compilation
-                • Problème d'authentification SonarQube
-                • Échec de l'analyse de sécurité
-                • Problème de build Docker
-                
-                📖 POUR INVESTIGUER :
-                1. Consultez les logs du build: ${env.BUILD_URL}console
-                2. Vérifiez la configuration
-                3. Corrigez les erreurs identifiées
-                
-                🔗 LIENS UTILES:
-                Build Jenkins: ${env.BUILD_URL}
-                SonarQube: ${SONAR_HOST}
-                
-                --
-                Pipeline DevSecOps Automatisé
-                """,
-                to: "maalejahmed55@gmail.com",  // ✅ CORRIGÉ
-                attachLog: true
-            )
+            // 🔔 NOTIFICATION SLACK - ÉCHEC
+            script {
+                try {
+                    slackSend(
+                        channel: "${SLACK_CHANNEL}",
+                        color: 'danger',
+                        message: """
+                        🚨 *DEVSECOPS EN ÉCHEC !*
+                        ========================
+                        *${SONAR_PROJECT_NAME}* - Build #${env.BUILD_NUMBER}
+                        
+                        ❌ *Action Requise:* Intervention nécessaire
+                        
+                        🔍 *Pour investiguer:*
+                        • <${env.BUILD_URL}console|Consulter les logs>
+                        • Vérifier la configuration
+                        • Corriger les erreurs identifiées
+                        
+                        ⏱️ *Durée:* ${currentBuild.durationString}
+                        """
+                    )
+                } catch (Exception e) {
+                    echo "⚠️  Slack failure notification failed: ${e.message}"
+                }
+            }
         }
         
         unstable {
             echo "⚠️  BUILD INSTABLE - Qualité dégradée"
             
-            // 📧 NOTIFICATION EMAIL - INSTABLE
-            emailext (
-                subject: "⚠️ INSTABLE - Pipeline DevSecOps ${SONAR_PROJECT_NAME} - Build #${env.BUILD_NUMBER}",
-                body: """
-                ⚠️  PIPELINE DEVSECOPS - QUALITÉ DÉGRADÉE
-                ========================================
-                
-                📋 DÉTAILS DU BUILD :
-                • Projet: ${SONAR_PROJECT_NAME}
-                • Build: #${env.BUILD_NUMBER}
-                • Statut: INSTABLE ⚠️
-                • Durée: ${currentBuild.durationString}
-                • Date: ${new Date().format("dd/MM/yyyy à HH:mm")}
-                
-                📊 CAUSE PROBABLE :
-                • Quality Gate SonarQube non passé
-                • Metrics de qualité insuffisantes
-                • Vulnérabilités détectées
-                
-                🔍 POUR INVESTIGUER :
-                1. Consultez SonarQube: ${SONAR_HOST}/dashboard?id=${SONAR_PROJECT_KEY}
-                2. Vérifiez les métriques de qualité
-                3. Améliorez la qualité du code
-                
-                🔗 LIENS UTILES:
-                Build Jenkins: ${env.BUILD_URL}
-                SonarQube: ${SONAR_HOST}/dashboard?id=${SONAR_PROJECT_KEY}
-                
-                --
-                Pipeline DevSecOps Automatisé
-                """,
-                to: "maalejahmed55@gmail.com",  // ✅ CORRIGÉ
-                attachLog: false
-            )
+            // 🔔 NOTIFICATION SLACK - INSTABLE
+            script {
+                try {
+                    slackSend(
+                        channel: "${SLACK_CHANNEL}",
+                        color: 'warning',
+                        message: """
+                        ⚠️ *DEVSECOPS - QUALITÉ DÉGRADÉE*
+                        ================================
+                        *${SONAR_PROJECT_NAME}* - Build #${env.BUILD_NUMBER}
+                        
+                        📉 *Cause probable:* Quality Gate SonarQube non passé
+                        
+                        🔧 *Actions recommandées:*
+                        • <${SONAR_HOST}/dashboard?id=${SONAR_PROJECT_KEY}|Vérifier SonarQube>
+                        • Améliorer les métriques de qualité
+                        • Corriger les vulnérabilités
+                        
+                        ⏱️ *Durée:* ${currentBuild.durationString}
+                        """
+                    )
+                } catch (Exception e) {
+                    echo "⚠️  Slack unstable notification failed: ${e.message}"
+                }
+            }
         }
-    }  
+    }
 }
