@@ -1,4 +1,3 @@
-
 pipeline {
     agent any
     
@@ -11,6 +10,7 @@ pipeline {
         SONAR_PROJECT_KEY = "simple-java-devsecops"
         SONAR_PROJECT_NAME = "Simple Java DevSecOps"
         SONAR_HOST = "http://192.168.10.10:9000"
+        SLACK_CHANNEL = "#devsecnotif"
     }
     
     stages {
@@ -197,7 +197,41 @@ EOR
         success {
             echo "🎉 SUCCÈS - Pipeline DevSecOps complété!"
             
-            // 📧 NOTIFICATION EMAIL ESPRIT - SUCCÈS
+            // 🔔 NOTIFICATION SLACK - SUCCÈS
+            slackSend(
+                channel: "${SLACK_CHANNEL}",
+                color: "good",
+                message: """🎉 SUCCÈS - Pipeline DevSecOps ${SONAR_PROJECT_NAME}
+                
+📋 *INFORMATIONS DU BUILD :*
+• Projet: ${SONAR_PROJECT_NAME}
+• Build: #${env.BUILD_NUMBER}
+• Statut: SUCCÈS ✅
+• Durée: ${currentBuild.durationString}
+                
+📊 *RÉSULTATS DES ANALYSES :*
+                
+🔍 *SAST (ANALYSE STATIQUE) :*
+   ✓ Outil: SonarQube
+   ✓ Rapport: ${SONAR_HOST}/dashboard?id=${SONAR_PROJECT_KEY}
+   ✓ Statut: Analyse terminée
+                
+📦 *SCA (DÉPENDANCES) :*
+   ✓ Outil: OWASP Dependency-Check
+   ✓ Résultat: Aucune vulnérabilité critique
+   ✓ Niveau de risque: FAIBLE
+                
+🐳 *SÉCURITÉ CONTAINER :*
+   ✓ Outil: Trivy
+   ✓ Image: ${DOCKER_IMAGE}:${DOCKER_TAG}
+   ✓ Scan: Terminé
+                
+🔗 *LIENS UTILES :*
+• Build Jenkins: ${env.BUILD_URL}
+• SonarQube: ${SONAR_HOST}/dashboard?id=${SONAR_PROJECT_KEY}"""
+            )
+            
+            // 📧 NOTIFICATION EMAIL ESPRIT - SUCCÈS (Optionnel - gardez ou supprimez)
             emailext (
                 subject: "✅ SUCCÈS - Pipeline DevSecOps ${SONAR_PROJECT_NAME} - Build #${env.BUILD_NUMBER}",
                 body: """
@@ -249,7 +283,31 @@ EOR
         failure {
             echo "❌ ÉCHEC - Consultez les logs pour détails"
             
-            // 📧 NOTIFICATION EMAIL ESPRIT - ÉCHEC
+            // 🔔 NOTIFICATION SLACK - ÉCHEC
+            slackSend(
+                channel: "${SLACK_CHANNEL}",
+                color: "danger",
+                message: """🚨 ALERTE DEVSECOPS - ÉCHEC
+                
+📋 *INFORMATIONS :*
+• Projet: ${SONAR_PROJECT_NAME}
+• Build: #${env.BUILD_NUMBER}
+• Statut: ÉCHEC ❌
+• Durée: ${currentBuild.durationString}
+                
+⚠️ *ACTION REQUISE :*
+Veuillez consulter les logs pour identifier et corriger le problème.
+                
+🔍 *POUR INVESTIGUER :*
+1. Accédez aux logs: ${env.BUILD_URL}console
+2. Identifiez l'étape en échec
+3. Corrigez l'erreur
+                
+🔗 *ACCÈS RAPIDE :*
+• Logs détaillés: ${env.BUILD_URL}console"""
+            )
+            
+            // 📧 NOTIFICATION EMAIL ESPRIT - ÉCHEC (Optionnel)
             emailext (
                 subject: "❌ ÉCHEC - Pipeline DevSecOps ${SONAR_PROJECT_NAME} - Build #${env.BUILD_NUMBER}",
                 body: """
@@ -289,7 +347,32 @@ EOR
         unstable {
             echo "⚠️  BUILD INSTABLE - Qualité dégradée"
             
-            // 📧 NOTIFICATION EMAIL ESPRIT - INSTABLE
+            // 🔔 NOTIFICATION SLACK - INSTABLE
+            slackSend(
+                channel: "${SLACK_CHANNEL}",
+                color: "warning",
+                message: """⚠️ DEVSECOPS - QUALITÉ DÉGRADÉE
+                
+📋 *INFORMATIONS :*
+• Projet: ${SONAR_PROJECT_NAME}
+• Build: #${env.BUILD_NUMBER}
+• Statut: INSTABLE ⚠️
+• Durée: ${currentBuild.durationString}
+                
+📊 *CAUSE PROBABLE :*
+Le Quality Gate SonarQube n'a pas été passé.
+                
+🛠️ *ACTIONS RECOMMANDÉES :*
+1. Consultez SonarQube: ${SONAR_HOST}/dashboard?id=${SONAR_PROJECT_KEY}
+2. Améliorez les métriques de qualité
+3. Corrigez les vulnérabilités identifiées
+                
+🔗 *LIENS :*
+• Rapport SonarQube: ${SONAR_HOST}/dashboard?id=${SONAR_PROJECT_KEY}
+• Build Jenkins: ${env.BUILD_URL}"""
+            )
+            
+            // 📧 NOTIFICATION EMAIL ESPRIT - INSTABLE (Optionnel)
             emailext (
                 subject: "⚠️ INSTABLE - Pipeline DevSecOps ${SONAR_PROJECT_NAME} - Build #${env.BUILD_NUMBER}",
                 body: """
