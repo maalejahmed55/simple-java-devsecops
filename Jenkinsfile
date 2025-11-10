@@ -230,54 +230,6 @@ EOR
 • Build Jenkins: ${env.BUILD_URL}
 • SonarQube: ${SONAR_HOST}/dashboard?id=${SONAR_PROJECT_KEY}"""
             )
-            
-            // 📧 NOTIFICATION EMAIL ESPRIT - SUCCÈS (Optionnel - gardez ou supprimez)
-            emailext (
-                subject: "✅ SUCCÈS - Pipeline DevSecOps ${SONAR_PROJECT_NAME} - Build #${env.BUILD_NUMBER}",
-                body: """
-                🎉 RAPPORT DEVSECOPS - SUCCÈS
-                ==============================
-                
-                Bonjour,
-                
-                Le pipeline DevSecOps de votre projet s'est terminé avec succès.
-                
-                📋 INFORMATIONS DU BUILD :
-                • Projet: ${SONAR_PROJECT_NAME}
-                • Build: #${env.BUILD_NUMBER}
-                • Statut: SUCCÈS ✅
-                • Durée: ${currentBuild.durationString}
-                • Date: ${new Date().format("dd/MM/yyyy 'à' HH:mm")}
-                
-                📊 RÉSULTATS DES ANALYSES :
-                
-                🔍 SAST (ANALYSE STATIQUE) :
-                   ✓ Outil: SonarQube
-                   ✓ Rapport: ${SONAR_HOST}/dashboard?id=${SONAR_PROJECT_KEY}
-                   ✓ Statut: Analyse terminée
-                
-                📦 SCA (DÉPENDANCES) :
-                   ✓ Outil: OWASP Dependency-Check
-                   ✓ Résultat: Aucune vulnérabilité critique
-                   ✓ Niveau de risque: FAIBLE
-                
-                🐳 SÉCURITÉ CONTAINER :
-                   ✓ Outil: Trivy
-                   ✓ Image: ${DOCKER_IMAGE}:${DOCKER_TAG}
-                   ✓ Scan: Terminé
-                
-                🔗 LIENS UTILES :
-                • Build Jenkins: ${env.BUILD_URL}
-                • SonarQube: ${SONAR_HOST}/dashboard?id=${SONAR_PROJECT_KEY}
-                • Rapport OWASP: ${env.BUILD_URL}SCA_20OWASP_20Report/
-                
-                Cordialement,
-                Votre Pipeline DevSecOps Automatisé
-                """,
-                to: "maalej.ahmed.1@esprit.tn",
-                replyTo: "maalej.ahmed.1@esprit.tn",
-                attachLog: false
-            )
         }
         
         failure {
@@ -305,42 +257,6 @@ Veuillez consulter les logs pour identifier et corriger le problème.
                 
 🔗 *ACCÈS RAPIDE :*
 • Logs détaillés: ${env.BUILD_URL}console"""
-            )
-            
-            // 📧 NOTIFICATION EMAIL ESPRIT - ÉCHEC (Optionnel)
-            emailext (
-                subject: "❌ ÉCHEC - Pipeline DevSecOps ${SONAR_PROJECT_NAME} - Build #${env.BUILD_NUMBER}",
-                body: """
-                🚨 ALERTE DEVSECOPS - ÉCHEC
-                ===========================
-                
-                Bonjour,
-                
-                Le pipeline DevSecOps a rencontré une erreur nécessitant votre intervention.
-                
-                📋 INFORMATIONS :
-                • Projet: ${SONAR_PROJECT_NAME}
-                • Build: #${env.BUILD_NUMBER}
-                • Statut: ÉCHEC ❌
-                • Durée: ${currentBuild.durationString}
-                
-                ⚠️  ACTION REQUISE :
-                Veuillez consulter les logs pour identifier et corriger le problème.
-                
-                🔍 POUR INVESTIGUER :
-                1. Accédez aux logs: ${env.BUILD_URL}console
-                2. Identifiez l'étape en échec
-                3. Corrigez l'erreur
-                
-                🔗 ACCÈS RAPIDE :
-                • Logs détaillés: ${env.BUILD_URL}console
-                
-                Cordialement,
-                Votre Pipeline DevSecOps Automatisé
-                """,
-                to: "maalej.ahmed.1@esprit.tn",
-                replyTo: "maalej.ahmed.1@esprit.tn",
-                attachLog: true
             )
         }
         
@@ -370,43 +286,6 @@ Le Quality Gate SonarQube n'a pas été passé.
 🔗 *LIENS :*
 • Rapport SonarQube: ${SONAR_HOST}/dashboard?id=${SONAR_PROJECT_KEY}
 • Build Jenkins: ${env.BUILD_URL}"""
-            )
-            
-            // 📧 NOTIFICATION EMAIL ESPRIT - INSTABLE (Optionnel)
-            emailext (
-                subject: "⚠️ INSTABLE - Pipeline DevSecOps ${SONAR_PROJECT_NAME} - Build #${env.BUILD_NUMBER}",
-                body: """
-                ⚠️ DEVSECOPS - QUALITÉ DÉGRADÉE
-                ===============================
-                
-                Bonjour,
-                
-                Le pipeline DevSecOps s'est terminé mais la qualité du code nécessite des améliorations.
-                
-                📋 INFORMATIONS :
-                • Projet: ${SONAR_PROJECT_NAME}
-                • Build: #${env.BUILD_NUMBER}
-                • Statut: INSTABLE ⚠️
-                • Durée: ${currentBuild.durationString}
-                
-                📊 CAUSE PROBABLE :
-                Le Quality Gate SonarQube n'a pas été passé.
-                
-                🛠️ ACTIONS RECOMMANDÉES :
-                1. Consultez SonarQube: ${SONAR_HOST}/dashboard?id=${SONAR_PROJECT_KEY}
-                2. Améliorez les métriques de qualité
-                3. Corrigez les vulnérabilités identifiées
-                
-                🔗 LIENS :
-                • Rapport SonarQube: ${SONAR_HOST}/dashboard?id=${SONAR_PROJECT_KEY}
-                • Build Jenkins: ${env.BUILD_URL}
-                
-                Cordialement,
-                Votre Pipeline DevSecOps Automatisé
-                """,
-                to: "maalej.ahmed.1@esprit.tn",
-                replyTo: "maalej.ahmed.1@esprit.tn",
-                attachLog: false
             )
         }
     }
