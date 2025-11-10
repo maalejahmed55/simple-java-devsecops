@@ -21,3 +21,4 @@ COPY --from=builder /app/target/simple-java-devsecops-1.0.0.jar app.jar
 EXPOSE 8080
 
 ENTRYPOINT ["java", "-jar", "app.jar"]
+# Fin du Dockerfile 
