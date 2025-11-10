@@ -9,7 +9,7 @@ pipeline {
         DOCKER_TAG = "${env.BUILD_NUMBER}"
         SONAR_PROJECT_KEY = "simple-java-devsecops"
         SONAR_PROJECT_NAME = "Simple Java DevSecOps"
-        SONAR_TOKEN = "sqp_b0cf47f5c6a30692f381bbd3c0271121255e951d"  // ⬅️ Votre token SonarQube
+        SONAR_TOKEN = "sqp_b0cf47f5c6a30692f381bbd3c0271121255e951d"
     }
     
     stages {
@@ -61,15 +61,19 @@ pipeline {
                 script {
                     echo "🔍 SAST: Analyse du code source avec SonarQube..."
                     
-                    // Vérification préalable
+                    // Test de connexion d'abord
                     sh '''
-                        echo "🎯 Préparation SonarQube..."
-                        echo "Classes compilées: $(find target/classes/ -name "*.class" 2>/dev/null | wc -l)"
-                        echo "JAR créé: $(ls target/*.jar 2>/dev/null | wc -l)"
-                        echo "Fichiers sources: $(find src/main/java/ -name "*.java" 2>/dev/null | wc -l)"
+                        echo "🔧 Test de connexion à SonarQube..."
+                        curl -f http://192.168.10.10:9000/api/system/status || {
+                            echo "❌ SonarQube inaccessible à 192.168.10.10:9000"
+                            echo "🔄 Tentative de diagnostic..."
+                            ping -c 2 192.168.10.10 || echo "❌ IP inaccessible"
+                            exit 1
+                        }
+                        echo "✅ SonarQube accessible"
                     '''
                     
-                    // Analyse SonarQube avec token direct
+                    // Analyse SonarQube avec la bonne IP
                     sh """
                         mvn sonar:sonar \
                         -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
@@ -77,7 +81,7 @@ pipeline {
                         -Dsonar.sources=src/main/java \
                         -Dsonar.java.binaries=target/classes \
                         -Dsonar.sourceEncoding=UTF-8 \
-                        -Dsonar.host.url=http://localhost:9000 \
+                        -Dsonar.host.url=http://192.168.10.10:9000 \
                         -Dsonar.token=${SONAR_TOKEN}
                     """
                 }
@@ -132,7 +136,6 @@ pipeline {
             steps {
                 script {
                     echo "📦 Push vers Docker Hub..."
-                    // Utilisation des credentials Jenkins pour Docker Hub uniquement
                     withCredentials([usernamePassword(
                         credentialsId: 'docker-hub-credentials',
                         usernameVariable: 'DOCKER_USER',
@@ -195,7 +198,7 @@ pipeline {
                 echo "Projet: ${SONAR_PROJECT_NAME}"
                 echo "Build: ${BUILD_NUMBER}"
                 echo "Image Docker: ${DOCKER_IMAGE}:${DOCKER_TAG}"
-                echo "SonarQube: http://localhost:9000"
+                echo "SonarQube: http://192.168.10.10:9000"
                 echo "Application: http://localhost:${APP_PORT}"
                 echo "Classes compilées: $(find target/classes/ -name "*.class" 2>/dev/null | wc -l)"
                 echo "JAR: $(ls target/*.jar 2>/dev/null | wc -l)"
