@@ -1,3 +1,4 @@
+
 pipeline {
     agent any
     
@@ -196,53 +197,51 @@ EOR
         success {
             echo "🎉 SUCCÈS - Pipeline DevSecOps complété!"
             
-            // 📧 NOTIFICATION OUTLOOK - SUCCÈS
+            // 📧 NOTIFICATION EMAIL ESPRIT - SUCCÈS
             emailext (
-                subject: "✅ DEVSECOPS SUCCESS - ${SONAR_PROJECT_NAME} - Build #${env.BUILD_NUMBER}",
+                subject: "✅ SUCCÈS - Pipeline DevSecOps ${SONAR_PROJECT_NAME} - Build #${env.BUILD_NUMBER}",
                 body: """
-                🛡️ DEVSECOPS PIPELINE - RAPPORT DE SUCCÈS
-                ==========================================
+                🎉 RAPPORT DEVSECOPS - SUCCÈS
+                ==============================
+                
+                Bonjour,
+                
+                Le pipeline DevSecOps de votre projet s'est terminé avec succès.
                 
                 📋 INFORMATIONS DU BUILD :
                 • Projet: ${SONAR_PROJECT_NAME}
-                • Numéro de build: #${env.BUILD_NUMBER}
+                • Build: #${env.BUILD_NUMBER}
                 • Statut: SUCCÈS ✅
                 • Durée: ${currentBuild.durationString}
                 • Date: ${new Date().format("dd/MM/yyyy 'à' HH:mm")}
                 
-                📊 RÉSULTATS DES ANALYSES DE SÉCURITÉ :
+                📊 RÉSULTATS DES ANALYSES :
                 
                 🔍 SAST (ANALYSE STATIQUE) :
                    ✓ Outil: SonarQube
                    ✓ Rapport: ${SONAR_HOST}/dashboard?id=${SONAR_PROJECT_KEY}
-                   ✓ Statut: Analyse terminée sans erreur
+                   ✓ Statut: Analyse terminée
                 
-                📦 SCA (ANALYSE DES DÉPENDANCES) :
+                📦 SCA (DÉPENDANCES) :
                    ✓ Outil: OWASP Dependency-Check
-                   ✓ Résultat: Aucune vulnérabilité critique détectée
+                   ✓ Résultat: Aucune vulnérabilité critique
                    ✓ Niveau de risque: FAIBLE
-                   ✓ Dépendances analysées: 2
                 
-                🐳 SÉCURITÉ DES CONTAINERS :
+                🐳 SÉCURITÉ CONTAINER :
                    ✓ Outil: Trivy
                    ✓ Image: ${DOCKER_IMAGE}:${DOCKER_TAG}
-                   ✓ Scan: Terminé avec succès
+                   ✓ Scan: Terminé
                 
-                📎 ARTÉFACTS GÉNÉRÉS :
-                • Application JAR: simple-java-devsecops-1.0.0.jar
-                • Rapports de sécurité: Disponibles dans Jenkins
-                • Image Docker: ${DOCKER_IMAGE}:${DOCKER_TAG}
-                
-                🔗 LIENS IMPORTANTS :
+                🔗 LIENS UTILES :
                 • Build Jenkins: ${env.BUILD_URL}
-                • Rapport SonarQube: ${SONAR_HOST}/dashboard?id=${SONAR_PROJECT_KEY}
+                • SonarQube: ${SONAR_HOST}/dashboard?id=${SONAR_PROJECT_KEY}
                 • Rapport OWASP: ${env.BUILD_URL}SCA_20OWASP_20Report/
                 
-                ---
-                Ce message a été généré automatiquement par le pipeline DevSecOps
+                Cordialement,
+                Votre Pipeline DevSecOps Automatisé
                 """,
-                to: "maalejahmed55@gmail.com",
-                replyTo: "maalejahmed55@outlook.com",
+                to: "maalej.ahmed.1@esprit.tn",
+                replyTo: "maalej.ahmed.1@esprit.tn",
                 attachLog: false
             )
         }
@@ -250,46 +249,39 @@ EOR
         failure {
             echo "❌ ÉCHEC - Consultez les logs pour détails"
             
-            // 📧 NOTIFICATION OUTLOOK - ÉCHEC
+            // 📧 NOTIFICATION EMAIL ESPRIT - ÉCHEC
             emailext (
-                subject: "🚨 DEVSECOPS FAILURE - ${SONAR_PROJECT_NAME} - Build #${env.BUILD_NUMBER} - ACTION REQUISE",
+                subject: "❌ ÉCHEC - Pipeline DevSecOps ${SONAR_PROJECT_NAME} - Build #${env.BUILD_NUMBER}",
                 body: """
-                🚨 DEVSECOPS PIPELINE - ALERTE D'ÉCHEC
-                ======================================
+                🚨 ALERTE DEVSECOPS - ÉCHEC
+                ===========================
                 
-                📋 INFORMATIONS DU BUILD :
+                Bonjour,
+                
+                Le pipeline DevSecOps a rencontré une erreur nécessitant votre intervention.
+                
+                📋 INFORMATIONS :
                 • Projet: ${SONAR_PROJECT_NAME}
-                • Numéro de build: #${env.BUILD_NUMBER}
+                • Build: #${env.BUILD_NUMBER}
                 • Statut: ÉCHEC ❌
                 • Durée: ${currentBuild.durationString}
-                • Date: ${new Date().format("dd/MM/yyyy 'à' HH:mm")}
                 
                 ⚠️  ACTION REQUISE :
-                Une intervention immédiate est nécessaire pour investiguer et corriger le problème.
+                Veuillez consulter les logs pour identifier et corriger le problème.
                 
-                🔍 CAUSES POTENTIELLES :
-                • Échec de compilation du code source
-                • Problème d'authentification SonarQube
-                • Échec de l'analyse de sécurité
-                • Problème lors du build Docker
-                • Échec du scan de sécurité
+                🔍 POUR INVESTIGUER :
+                1. Accédez aux logs: ${env.BUILD_URL}console
+                2. Identifiez l'étape en échec
+                3. Corrigez l'erreur
                 
-                📖 POUR INVESTIGUER :
-                1. Consultez les logs détaillés: ${env.BUILD_URL}console
-                2. Vérifiez la configuration des outils
-                3. Identifiez l'étape exacte de l'échec
-                4. Corrigez les erreurs identifiées
+                🔗 ACCÈS RAPIDE :
+                • Logs détaillés: ${env.BUILD_URL}console
                 
-                🔗 LIENS UTILES :
-                • Logs du build: ${env.BUILD_URL}console
-                • Configuration SonarQube: ${SONAR_HOST}
-                • Documentation DevSecOps: [lien vers votre documentation]
-                
-                ---
-                Ce message a été généré automatiquement par le pipeline DevSecOps
+                Cordialement,
+                Votre Pipeline DevSecOps Automatisé
                 """,
-                to: "maalejahmed55@gmail.com",
-                replyTo: "maalejahmed55@outlook.com",
+                to: "maalej.ahmed.1@esprit.tn",
+                replyTo: "maalej.ahmed.1@esprit.tn",
                 attachLog: true
             )
         }
@@ -297,45 +289,40 @@ EOR
         unstable {
             echo "⚠️  BUILD INSTABLE - Qualité dégradée"
             
-            // 📧 NOTIFICATION OUTLOOK - INSTABLE
+            // 📧 NOTIFICATION EMAIL ESPRIT - INSTABLE
             emailext (
-                subject: "⚠️ DEVSECOPS UNSTABLE - ${SONAR_PROJECT_NAME} - Build #${env.BUILD_NUMBER} - QUALITÉ DÉGRADÉE",
+                subject: "⚠️ INSTABLE - Pipeline DevSecOps ${SONAR_PROJECT_NAME} - Build #${env.BUILD_NUMBER}",
                 body: """
-                ⚠️ DEVSECOPS PIPELINE - QUALITÉ DÉGRADÉE
-                ========================================
+                ⚠️ DEVSECOPS - QUALITÉ DÉGRADÉE
+                ===============================
                 
-                📋 INFORMATIONS DU BUILD :
+                Bonjour,
+                
+                Le pipeline DevSecOps s'est terminé mais la qualité du code nécessite des améliorations.
+                
+                📋 INFORMATIONS :
                 • Projet: ${SONAR_PROJECT_NAME}
-                • Numéro de build: #${env.BUILD_NUMBER}
+                • Build: #${env.BUILD_NUMBER}
                 • Statut: INSTABLE ⚠️
                 • Durée: ${currentBuild.durationString}
-                • Date: ${new Date().format("dd/MM/yyyy 'à' HH:mm")}
                 
                 📊 CAUSE PROBABLE :
-                Le pipeline s'est terminé mais la qualité du code ne respecte pas les standards définis.
-                Cause la plus probable: Quality Gate SonarQube non passé.
-                
-                🔍 POINTS À VÉRIFIER :
-                • Métriques de qualité dans SonarQube
-                • Nombre de bugs et vulnérabilités
-                • Couverture de code insuffisante
-                • Dette technique trop élevée
+                Le Quality Gate SonarQube n'a pas été passé.
                 
                 🛠️ ACTIONS RECOMMANDÉES :
-                1. Consulter le rapport SonarQube: ${SONAR_HOST}/dashboard?id=${SONAR_PROJECT_KEY}
-                2. Identifier les métriques problématiques
-                3. Améliorer la qualité du code
-                4. Corriger les vulnérabilités identifiées
+                1. Consultez SonarQube: ${SONAR_HOST}/dashboard?id=${SONAR_PROJECT_KEY}
+                2. Améliorez les métriques de qualité
+                3. Corrigez les vulnérabilités identifiées
                 
-                🔗 LIENS IMPORTANTS :
+                🔗 LIENS :
                 • Rapport SonarQube: ${SONAR_HOST}/dashboard?id=${SONAR_PROJECT_KEY}
                 • Build Jenkins: ${env.BUILD_URL}
                 
-                ---
-                Ce message a été généré automatiquement par le pipeline DevSecOps
+                Cordialement,
+                Votre Pipeline DevSecOps Automatisé
                 """,
-                to: "maalejahmed55@gmail.com",
-                replyTo: "maalejahmed55@outlook.com",
+                to: "maalej.ahmed.1@esprit.tn",
+                replyTo: "maalej.ahmed.1@esprit.tn",
                 attachLog: false
             )
         }
