@@ -168,15 +168,140 @@ EOR
         stage('Container Security Scan') {
             steps {
                 script {
-                    echo "🔒 Scan de sécurité du container..."
+                    echo "🔒 Scan de sécurité du container avec Trivy..."
+                    
+                    // Installation de Trivy
                     sh """
                         which trivy >/dev/null 2>&1 || (
+                            echo "📥 Installation de Trivy..."
                             curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
                         )
-                        
-                        echo "🔍 Scan Trivy..."
-                        trivy image --exit-code 0 --no-progress --severity HIGH,CRITICAL ${DOCKER_IMAGE}:${DOCKER_TAG} && echo "✅ Scan réussi" || echo "⚠️  Vulnérabilités détectées"
                     """
+                    
+                    // Scan détaillé avec rapports visibles
+                    sh """
+                        echo "🔍 Lancement du scan Trivy détaillé..."
+                        mkdir -p reports/trivy/
+                        
+                        # Scan avec affichage détaillé dans les logs
+                        echo "📊 SCAN TRIVY DÉMARRÉ"
+                        echo "===================="
+                        trivy image --format table --severity HIGH,CRITICAL ${DOCKER_IMAGE}:${DOCKER_TAG} | tee reports/trivy/scan-result.txt
+                        
+                        # Scan JSON pour l'analyse des résultats
+                        trivy image --format json --severity HIGH,CRITICAL --output reports/trivy/scan-result.json ${DOCKER_IMAGE}:${DOCKER_TAG}
+                        
+                        # Génération d'un rapport HTML simple
+                        cat > reports/trivy/trivy-report.html << EOF
+                        <!DOCTYPE html>
+                        <html>
+                        <head>
+                            <title>Rapport Trivy - Sécurité Container</title>
+                            <style>
+                                body { font-family: Arial, sans-serif; margin: 40px; }
+                                .header { background: #f0f0f0; padding: 20px; border-radius: 5px; }
+                                .critical { background: #f8d7da; padding: 15px; margin: 10px 0; border-left: 5px solid #dc3545; }
+                                .high { background: #fff3cd; padding: 15px; margin: 10px 0; border-left: 5px solid #ffc107; }
+                                .success { background: #d4edda; padding: 15px; margin: 10px 0; border-left: 5px solid #28a745; }
+                                .vuln-item { background: #f8f9fa; padding: 10px; margin: 5px 0; border-radius: 3px; }
+                            </style>
+                        </head>
+                        <body>
+                            <div class="header">
+                                <h1>🔒 Rapport Trivy - Sécurité Container</h1>
+                                <p>Image: ${DOCKER_IMAGE}:${DOCKER_TAG}</p>
+                                <p>Date: \$(date)</p>
+                            </div>
+                        EOF
+                        
+                        # Analyse des résultats pour le rapport HTML
+                        if [ -f "reports/trivy/scan-result.json" ]; then
+                            # Comptage des vulnérabilités (méthode simplifiée)
+                            CRITICAL_COUNT=\$(grep -o "CRITICAL" reports/trivy/scan-result.txt | wc -l || echo "0")
+                            HIGH_COUNT=\$(grep -o "HIGH" reports/trivy/scan-result.txt | wc -l || echo "0")
+                            
+                            cat >> reports/trivy/trivy-report.html << EOF
+                            <div class="success">
+                                <h2>📊 Résultats du Scan</h2>
+                                <p><strong>Vulnérabilités CRITICAL:</strong> \$CRITICAL_COUNT</p>
+                                <p><strong>Vulnérabilités HIGH:</strong> \$HIGH_COUNT</p>
+                            </div>
+                        EOF
+                            
+                            if [ "\$CRITICAL_COUNT" -gt 0 ]; then
+                                cat >> reports/trivy/trivy-report.html << EOF
+                                <div class="critical">
+                                    <h2>🔴 Vulnérabilités CRITICAL Détectées</h2>
+                                    <p>Des vulnérabilités critiques nécessitent une attention immédiate.</p>
+                                </div>
+                        EOF
+                            elif [ "\$HIGH_COUNT" -gt 0 ]; then
+                                cat >> reports/trivy/trivy-report.html << EOF
+                                <div class="high">
+                                    <h2>🟠 Vulnérabilités HIGH Détectées</h2>
+                                    <p>Des vulnérabilités élevées ont été identifiées.</p>
+                                </div>
+                        EOF
+                            else
+                                cat >> reports/trivy/trivy-report.html << EOF
+                                <div class="success">
+                                    <h2>✅ Aucune Vulnérabilité Critique</h2>
+                                    <p>L'image Docker est sécurisée pour le déploiement.</p>
+                                </div>
+                        EOF
+                            fi
+                            
+                            # Ajout des détails du scan
+                            echo "<div class='header'><h3>📋 Détails du Scan</h3></div>" >> reports/trivy/trivy-report.html
+                            echo "<pre>" >> reports/trivy/trivy-report.html
+                            cat reports/trivy/scan-result.txt >> reports/trivy/trivy-report.html
+                            echo "</pre>" >> reports/trivy/trivy-report.html
+                        fi
+                        
+                        cat >> reports/trivy/trivy-report.html << EOF
+                        </body>
+                        </html>
+                        EOF
+                        
+                        echo " "
+                        echo "📊 RÉSUMÉ TRIVY:"
+                        echo "================="
+                        if [ "\$CRITICAL_COUNT" -gt 0 ]; then
+                            echo "🔴 CRITICAL: \$CRITICAL_COUNT vulnérabilité(s) - ACTION REQUISE"
+                        else
+                            echo "✅ CRITICAL: \$CRITICAL_COUNT vulnérabilité(s)"
+                        fi
+                        
+                        if [ "\$HIGH_COUNT" -gt 0 ]; then
+                            echo "🟠 HIGH: \$HIGH_COUNT vulnérabilité(s) - À SURVEILLER"
+                        else
+                            echo "✅ HIGH: \$HIGH_COUNT vulnérabilité(s)"
+                        fi
+                        
+                        echo " "
+                        echo "📁 Rapports générés:"
+                        echo "   • reports/trivy/scan-result.txt (détail complet)"
+                        echo "   • reports/trivy/scan-result.json (format JSON)"
+                        echo "   • reports/trivy/trivy-report.html (rapport HTML)"
+                    """
+                }
+            }
+            
+            post {
+                always {
+                    // Publication du rapport Trivy
+                    publishHTML([
+                        allowMissing: true,
+                        alwaysLinkToLastBuild: true,
+                        keepAll: true,
+                        reportDir: 'reports/trivy',
+                        reportFiles: 'trivy-report.html',
+                        reportName: 'Trivy Security Report',
+                        reportTitles: 'Scan Sécurité Container - Trivy'
+                    ])
+                    
+                    // Archivage des rapports
+                    archiveArtifacts artifacts: 'reports/trivy/*', fingerprint: true
                 }
             }
         }
@@ -188,7 +313,8 @@ EOR
             echo "================================="
             echo "🔗 SAST (Code): ${SONAR_HOST}/dashboard?id=${SONAR_PROJECT_KEY}"
             echo "📁 SCA (Dépendances): Voir 'SCA OWASP Report' ci-dessus"
-            echo "🐳 Container: ${DOCKER_IMAGE}:${DOCKER_TAG}"
+            echo "🔒 Container Security: Voir 'Trivy Security Report' ci-dessus"
+            echo "🐳 Image Docker: ${DOCKER_IMAGE}:${DOCKER_TAG}"
             
             archiveArtifacts artifacts: 'target/*.jar', fingerprint: true
             archiveArtifacts artifacts: 'reports/**/*', fingerprint: true
@@ -197,39 +323,64 @@ EOR
         success {
             echo "🎉 SUCCÈS - Pipeline DevSecOps complété!"
             
-            // 🔔 NOTIFICATION SLACK - SUCCÈS
-            slackSend(
-                channel: "${SLACK_CHANNEL}",
-                color: "good",
-                message: """🎉 SUCCÈS - Pipeline DevSecOps ${SONAR_PROJECT_NAME}
+            // Lecture des résultats Trivy pour la notification
+            script {
+                def trivySummary = sh(
+                    script: """
+                        CRITICAL_COUNT=\$(grep -o "CRITICAL" reports/trivy/scan-result.txt 2>/dev/null | wc -l || echo "0")
+                        HIGH_COUNT=\$(grep -o "HIGH" reports/trivy/scan-result.txt 2>/dev/null | wc -l || echo "0")
+                        echo "CRITICAL:\$CRITICAL_COUNT,HIGH:\$HIGH_COUNT"
+                    """,
+                    returnStdout: true
+                ).trim()
                 
+                def criticalCount = trivySummary.split(",")[0].split(":")[1]
+                def highCount = trivySummary.split(",")[1].split(":")[1]
+                
+                def trivyStatus = ""
+                if (criticalCount.toInteger() > 0) {
+                    trivyStatus = "🔴 CRITICAL: ${criticalCount} - À CORRIGER"
+                } else if (highCount.toInteger() > 0) {
+                    trivyStatus = "🟠 HIGH: ${highCount} - À SURVEILLER"
+                } else {
+                    trivyStatus = "✅ AUCUNE vulnérabilité critique"
+                }
+            
+                // 🔔 NOTIFICATION SLACK - SUCCÈS
+                slackSend(
+                    channel: "${SLACK_CHANNEL}",
+                    color: "good",
+                    message: """🎉 SUCCÈS - Pipeline DevSecOps ${SONAR_PROJECT_NAME}
+                    
 📋 *INFORMATIONS DU BUILD :*
 • Projet: ${SONAR_PROJECT_NAME}
 • Build: #${env.BUILD_NUMBER}
 • Statut: SUCCÈS ✅
 • Durée: ${currentBuild.durationString}
-                
+                    
 📊 *RÉSULTATS DES ANALYSES :*
-                
+                    
 🔍 *SAST (ANALYSE STATIQUE) :*
    ✓ Outil: SonarQube
    ✓ Rapport: ${SONAR_HOST}/dashboard?id=${SONAR_PROJECT_KEY}
    ✓ Statut: Analyse terminée
-                
+                    
 📦 *SCA (DÉPENDANCES) :*
    ✓ Outil: OWASP Dependency-Check
    ✓ Résultat: Aucune vulnérabilité critique
    ✓ Niveau de risque: FAIBLE
-                
+                    
 🐳 *SÉCURITÉ CONTAINER :*
    ✓ Outil: Trivy
    ✓ Image: ${DOCKER_IMAGE}:${DOCKER_TAG}
-   ✓ Scan: Terminé
-                
+   ✓ Résultat: ${trivyStatus}
+   ✓ Rapport: ${env.BUILD_URL}Trivy_20Security_20Report/
+                    
 🔗 *LIENS UTILES :*
 • Build Jenkins: ${env.BUILD_URL}
 • SonarQube: ${SONAR_HOST}/dashboard?id=${SONAR_PROJECT_KEY}"""
-            )
+                )
+            }
         }
         
         failure {
