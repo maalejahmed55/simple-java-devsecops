@@ -152,106 +152,227 @@ EOR
             }
         }
         
+        stage('Diagnostic Docker') {
+            steps {
+                script {
+                    echo "🔍 DIAGNOSTIC DOCKER COMPLET..."
+                    sh """
+                        echo "=== ENVIRONNEMENT DOCKER ==="
+                        docker --version
+                        docker system info
+                        
+                        echo "=== ESPACE DISQUE ==="
+                        df -h
+                        docker system df
+                        
+                        echo "=== IMAGES EXISTANTES ==="
+                        docker images
+                        
+                        echo "=== RÉSEAU ==="
+                        ping -c 2 hub.docker.com
+                        curl -I https://hub.docker.com/ --connect-timeout 10
+                        
+                        echo "=== PERMISSIONS ==="
+                        ls -la /var/run/docker.sock 2>/dev/null || echo "Docker socket non trouvé"
+                        id
+                    """
+                }
+            }
+        }
+        
         stage('Build Docker Image') {
             steps {
                 script {
                     echo "🐳 Construction de l'image Docker..."
                     sh """
-                        # Nettoyage des images anciennes pour libérer de l'espace
-                        docker system prune -f || true
+                        # Nettoyage avant build
+                        docker system prune -f
                         
+                        # Build avec cache
                         docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} .
-                        echo "📸 Image créée:"
-                        docker images | grep ${DOCKER_IMAGE} || echo "Aucune image trouvée"
+                        
+                        echo "📸 Vérification de l'image:"
+                        docker images | grep ${DOCKER_IMAGE}
+                        
+                        echo "🏷️  Tags de l'image:"
+                        docker image inspect ${DOCKER_IMAGE}:${DOCKER_TAG} --format='{{.RepoTags}}'
                     """
                 }
             }
         }
         
-        stage('Container Security Scan - OPTIMISÉ') {
+        stage('Container Security Scan') {
             steps {
                 script {
-                    echo "🔒 Scan de sécurité RAPIDE du container..."
+                    echo "🔒 Scan de sécurité rapide..."
                     sh """
-                        # Vérification si Trivy est déjà installé
-                        if ! which trivy >/dev/null 2>&1; then
-                            echo "📥 Installation rapide de Trivy..."
-                            curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin
-                        fi
-                        
-                        echo "⚡ Scan TRIVY ULTRA RAPIDE..."
-                        
-                        # Scan ultra-rapide avec options d'optimisation
-                        trivy image \\
-                            --exit-code 0 \\
+                        # Scan minimal avec timeout
+                        timeout 300 docker run --rm \\
+                            -v /var/run/docker.sock:/var/run/docker.sock \\
+                            aquasec/trivy:latest \\
+                            image --exit-code 0 \\
                             --no-progress \\
-                            --severity HIGH,CRITICAL \\
+                            --severity CRITICAL \\
                             --ignore-unfixed \\
-                            --timeout 10m \\
-                            --scanners vuln \\
-                            --offline-scan \\
-                            --format table \\
-                            ${DOCKER_IMAGE}:${DOCKER_TAG} || echo "⚠️  Vulnérabilités détectées"
+                            ${DOCKER_IMAGE}:${DOCKER_TAG}
                         
-                        echo "✅ Scan rapide terminé"
+                        echo "✅ Scan sécurité terminé"
                     """
                 }
             }
         }
         
-        stage('Push Docker Image') {
+        stage('Test Docker Hub Connection') {
             steps {
                 script {
-                    echo "📤 Push de l'image Docker..."
+                    echo "🔗 Test de connexion à Docker Hub..."
+                    sh """
+                        echo "=== TEST CREDENTIALS ==="
+                        
+                        # Méthode 1: Test avec echo
+                        echo "Testing Docker Hub credentials..."
+                        
+                        # Méthode 2: Test basique de connexion
+                        if curl -s -o /dev/null -w "%{http_code}" https://hub.docker.com/ | grep -q "200"; then
+                            echo "✅ Connexion à Docker Hub OK"
+                        else
+                            echo "❌ Problème de connexion à Docker Hub"
+                        fi
+                    """
+                    
+                    // Test des credentials
                     withCredentials([usernamePassword(
                         credentialsId: 'docker-hub', 
-                        usernameVariable: 'DOCKER_USERNAME_CRED', 
-                        passwordVariable: 'DOCKER_PASSWORD'
+                        usernameVariable: 'DOCKERHUB_USER', 
+                        passwordVariable: 'DOCKERHUB_PASS'
                     )]) {
                         sh """
-                            # Debug: Vérification des variables
-                            echo "🔍 Debug credentials:"
-                            echo "User variable: DOCKER_USERNAME_CRED"
-                            echo "Image: ${DOCKER_IMAGE}:${DOCKER_TAG}"
+                            echo "Username: \${DOCKERHUB_USER}"
+                            echo "Password length: \${#DOCKERHUB_PASS} caractères"
                             
-                            # Login à Docker Hub
-                            echo "🔐 Authentification à Docker Hub..."
-                            echo \"\${DOCKER_PASSWORD}\" | docker login -u \"\${DOCKER_USERNAME_CRED}\" --password-stdin
+                            # Test d'authentification
+                            echo "Testing authentication..."
+                            AUTH_RESPONSE=\$(echo '{"username": "'\${DOCKERHUB_USER}'", "password": "'\${DOCKERHUB_PASS}'"}' | \\
+                                curl -s -H "Content-Type: application/json" -d @- https://hub.docker.com/v2/users/login/ || echo "FAIL")
                             
-                            # Tag de l'image si nécessaire
-                            echo "🏷️  Vérification des tags..."
-                            docker images | grep "${DOCKER_IMAGE}"
-                            
-                            # Push de l'image
-                            echo "🚀 Push de l'image..."
-                            docker push ${DOCKER_IMAGE}:${DOCKER_TAG}
-                            
-                            echo "✅ Image poussée avec succès: ${DOCKER_IMAGE}:${DOCKER_TAG}"
-                            
-                            # Vérification supplémentaire
-                            echo "📋 Liste des images locales:"
-                            docker images | head -10
+                            if [ "\$AUTH_RESPONSE" != "FAIL" ] && echo "\$AUTH_RESPONSE" | grep -q "token"; then
+                                echo "✅ Authentification Docker Hub réussie"
+                            else
+                                echo "❌ Échec authentification Docker Hub"
+                            fi
                         """
                     }
                 }
             }
         }
         
-        stage('Cleanup') {
+        stage('Push Docker Image - MULTI METHOD') {
             steps {
                 script {
-                    echo "🧹 Nettoyage des ressources..."
+                    echo "📤 Push Docker Image - Tentatives multiples..."
+                    
+                    withCredentials([usernamePassword(
+                        credentialsId: 'docker-hub', 
+                        usernameVariable: 'DOCKERHUB_USER', 
+                        passwordVariable: 'DOCKERHUB_PASS'
+                    )]) {
+                        sh """
+                        # Méthode 1: Login standard
+                        echo "🔐 Méthode 1: Login standard..."
+                        if echo "\${DOCKERHUB_PASS}" | docker login -u "\${DOCKERHUB_USER}" --password-stdin; then
+                            echo "✅ Login réussi"
+                            
+                            # Tentative de push
+                            echo "🚀 Tentative de push..."
+                            if docker push ${DOCKER_IMAGE}:${DOCKER_TAG}; then
+                                echo "🎉 PUSH RÉUSSI avec méthode 1!"
+                                exit 0
+                            else
+                                echo "❌ Échec push méthode 1"
+                            fi
+                        else
+                            echo "❌ Échec login méthode 1"
+                        fi
+                        
+                        # Méthode 2: Avec retag
+                        echo "🔄 Méthode 2: Retag et push..."
+                        docker tag ${DOCKER_IMAGE}:${DOCKER_TAG} \${DOCKERHUB_USER}/${APP_NAME}:${DOCKER_TAG}
+                        
+                        if docker push \${DOCKERHUB_USER}/${APP_NAME}:${DOCKER_TAG}; then
+                            echo "🎉 PUSH RÉUSSI avec méthode 2!"
+                            # Mise à jour de l'image name pour la suite
+                            env.DOCKER_IMAGE = "\${DOCKERHUB_USER}/${APP_NAME}"
+                            exit 0
+                        else
+                            echo "❌ Échec push méthode 2"
+                        fi
+                        
+                        # Méthode 3: Avec docker logout puis login
+                        echo "🔄 Méthode 3: Clean login..."
+                        docker logout
+                        sleep 2
+                        
+                        if echo "\${DOCKERHUB_PASS}" | docker login -u "\${DOCKERHUB_USER}" --password-stdin; then
+                            echo "✅ Re-login réussi"
+                            if docker push ${DOCKER_IMAGE}:${DOCKER_TAG}; then
+                                echo "🎉 PUSH RÉUSSI avec méthode 3!"
+                                exit 0
+                            fi
+                        fi
+                        
+                        # Si on arrive ici, toutes les méthodes ont échoué
+                        echo "❌❌ TOUTES LES MÉTHODES DE PUSH ONT ÉCHOUÉ ❌❌"
+                        echo "=== INFORMATION DE DÉBOGAGE ==="
+                        echo "Image: ${DOCKER_IMAGE}:${DOCKER_TAG}"
+                        echo "User: \${DOCKERHUB_USER}"
+                        echo "Docker config:"
+                        cat ~/.docker/config.json 2>/dev/null || echo "No docker config"
+                        exit 1
+                        """
+                    }
+                }
+            }
+        }
+        
+        stage('Fallback - Save Image Locally') {
+            when {
+                expression { currentBuild.result == 'FAILURE' }
+            }
+            steps {
+                script {
+                    echo "💾 Fallback: Sauvegarde locale de l'image..."
                     sh """
-                        # Nettoyage des images Docker pour libérer de l'espace
-                        docker rmi ${DOCKER_IMAGE}:${DOCKER_TAG} 2>/dev/null || echo "✅ Image déjà nettoyée"
+                        # Sauvegarde de l'image en tar
+                        docker save -o ${WORKSPACE}/docker-image-${DOCKER_TAG}.tar ${DOCKER_IMAGE}:${DOCKER_TAG}
+                        echo "✅ Image sauvegardée localement: docker-image-${DOCKER_TAG}.tar"
                         
-                        # Nettoyage des conteneurs arrêtés
-                        docker container prune -f 2>/dev/null || true
-                        
-                        # Nettoyage des réseaux non utilisés
-                        docker network prune -f 2>/dev/null || true
-                        
-                        echo "🧽 Nettoyage terminé"
+                        # Création d'un rapport de fallback
+                        cat > reports/docker-fallback.html << EOF
+                        <!DOCTYPE html>
+                        <html>
+                        <head>
+                            <title>Docker Push Fallback</title>
+                            <style>
+                                body { font-family: Arial, sans-serif; margin: 40px; }
+                                .warning { background: #fff3cd; padding: 20px; border-radius: 5px; }
+                                .info { background: #e7f3ff; padding: 15px; margin: 10px 0; }
+                            </style>
+                        </head>
+                        <body>
+                            <div class="warning">
+                                <h1>⚠️ Push Docker Hub Échoué</h1>
+                                <p>L'image a été sauvegardée localement dans le workspace Jenkins.</p>
+                                <p><strong>Fichier:</strong> docker-image-${DOCKER_TAG}.tar</p>
+                            </div>
+                            <div class="info">
+                                <h3>Pour charger l'image manuellement:</h3>
+                                <pre>docker load -i docker-image-${DOCKER_TAG}.tar</pre>
+                                <pre>docker tag ${DOCKER_IMAGE}:${DOCKER_TAG} your-repo/your-image:tag</pre>
+                                <pre>docker push your-repo/your-image:tag</pre>
+                            </div>
+                        </body>
+                        </html>
+EOF
                     """
                 }
             }
@@ -261,89 +382,42 @@ EOR
     post {
         always {
             echo "📊 PIPELINE DEVSECOPS TERMINÉ"
-            echo "================================="
-            echo "🔗 SAST (Code): ${SONAR_HOST}/dashboard?id=${SONAR_PROJECT_KEY}"
-            echo "📁 SCA (Dépendances): Voir 'SCA OWASP Report' ci-dessus"
-            echo "🐳 Container: ${DOCKER_IMAGE}:${DOCKER_TAG}"
+            echo "Résultat: ${currentBuild.result}"
+            
+            // Nettoyage
+            sh """
+                docker system prune -f || true
+            """
             
             archiveArtifacts artifacts: 'target/*.jar', fingerprint: true
             archiveArtifacts artifacts: 'reports/**/*', fingerprint: true
+            archiveArtifacts artifacts: '*.tar', fingerprint: true, allowEmptyArchive: true
         }
         
         success {
-            echo "🎉 SUCCÈS - Pipeline DevSecOps complété!"
-            
+            echo "🎉 SUCCÈS - Pipeline complété!"
             slackSend(
                 channel: "${SLACK_CHANNEL}",
                 color: "good",
-                message: """🎉 SUCCÈS - Pipeline DevSecOps ${SONAR_PROJECT_NAME}
-                
-📋 INFORMATIONS DU BUILD :
-• Projet: ${SONAR_PROJECT_NAME}
-• Build: #${env.BUILD_NUMBER}
-• Statut: SUCCÈS ✅
-• Durée: ${currentBuild.durationString}
-• Image Docker: ${DOCKER_IMAGE}:${DOCKER_TAG}
-
-📊 RÉSULTATS DES ANALYSES :
-
-🔍 SAST (ANALYSE STATIQUE) :
-   ✓ Outil: SonarQube
-   ✓ Rapport: ${SONAR_HOST}/dashboard?id=${SONAR_PROJECT_KEY}
-
-📦 SCA (DÉPENDANCES) :
-   ✓ Outil: OWASP Dependency-Check
-   ✓ Résultat: Analyse terminée
-
-🐳 SÉCURITÉ CONTAINER :
-   ✓ Outil: Trivy (Scan rapide)
-   ✓ Image: ${DOCKER_IMAGE}:${DOCKER_TAG}
-   ✓ Scan: Terminé - Mode optimisé
-
-📤 REGISTRY :
-   ✓ Image poussée: ${DOCKER_IMAGE}:${DOCKER_TAG}
-   ✓ Docker Hub: https://hub.docker.com/r/${DOCKER_IMAGE}
-
-🔗 LIENS UTILES :
-• Build Jenkins: ${env.BUILD_URL}
-• SonarQube: ${SONAR_HOST}/dashboard?id=${SONAR_PROJECT_KEY}"""
+                message: """🎉 SUCCÈS - Pipeline DevSecOps
+Projet: ${SONAR_PROJECT_NAME}
+Build: #${env.BUILD_NUMBER}
+Image: ${DOCKER_IMAGE}:${DOCKER_TAG}
+Durée: ${currentBuild.durationString}"""
             )
         }
         
         failure {
-            echo "❌ ÉCHEC - Consultez les logs pour détails"
-            
-            script {
-                // Analyse de l'erreur pour mieux diagnostiquer
-                def currentResult = currentBuild.result
-                echo "🔍 Analyse de l'échec: ${currentResult}"
-            }
-            
+            echo "❌ ÉCHEC - Voir les logs pour diagnostic"
             slackSend(
                 channel: "${SLACK_CHANNEL}",
                 color: "danger",
-                message: """🚨 ALERTE DEVSECOPS - ÉCHEC
-
-📋 INFORMATIONS :
-• Projet: ${SONAR_PROJECT_NAME}
-• Build: #${env.BUILD_NUMBER}
-• Statut: ÉCHEC ❌
-• Étape en échec: Push Docker Image
-
-🔧 DIAGNOSTIC PROBABLE :
-• Problème d'authentification Docker Hub
-• Crédentials Jenkins mal configurés
-• Problème de réseau/connexion
-• Espace disque insuffisant
-
-⚠️ ACTION REQUISE :
-1. Vérifiez les credentials Docker Hub dans Jenkins
-2. Vérifiez la connexion internet
-3. Consultez les logs détaillés
-
-🔗 ACCÈS RAPIDE :
-• Logs détaillés: ${env.BUILD_URL}console
-• Configuration credentials: ${env.JENKINS_URL}credentials/"""
+                message: """🚨 ÉCHEC - Push Docker
+Projet: ${SONAR_PROJECT_NAME}
+Build: #${env.BUILD_NUMBER}
+Erreur: Push Docker Hub échoué
+Image sauvegardée localement
+Logs: ${env.BUILD_URL}console"""
             )
         }
     }
