@@ -168,14 +168,63 @@ EOR
         stage('Container Security Scan') {
             steps {
                 script {
-                    echo "🔒 Scan de sécurité du container..."
+                    echo "🔒 Scan de sécurité du container avec Trivy..."
+                    
                     sh """
+                        # Installation de Trivy si nécessaire
                         which trivy >/dev/null 2>&1 || (
+                            echo "📥 Installation de Trivy..."
                             curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
                         )
                         
-                        echo "🔍 Scan Trivy..."
-                        trivy image --exit-code 0 --no-progress --severity HIGH,CRITICAL ${DOCKER_IMAGE}:${DOCKER_TAG} && echo "✅ Scan réussi" || echo "⚠️  Vulnérabilités détectées"
+                        echo "🔍 Scan Trivy détaillé..."
+                        
+                        # Scan avec affichage COMPLET des vulnérabilités
+                        echo "📊 DÉBUT DU SCAN TRIVY"
+                        echo "======================"
+                        
+                        # Premier scan pour voir TOUTES les vulnérabilités
+                        trivy image --severity HIGH,CRITICAL ${DOCKER_IMAGE}:${DOCKER_TAG}
+                        
+                        # Comptage des vulnérabilités
+                        echo " "
+                        echo "📈 ANALYSE DES VULNÉRABILITÉS"
+                        echo "=============================="
+                        
+                        # Scan en format JSON pour analyse précise
+                        trivy image --format json --severity HIGH,CRITICAL ${DOCKER_IMAGE}:${DOCKER_TAG} > trivy_temp.json 2>/dev/null || echo "❌ Erreur scan JSON"
+                        
+                        # Comptage avec différentes méthodes
+                        if [ -f "trivy_temp.json" ]; then
+                            CRITICAL_COUNT=\$(grep -o '"Severity":"CRITICAL"' trivy_temp.json | wc -l)
+                            HIGH_COUNT=\$(grep -o '"Severity":"HIGH"' trivy_temp.json | wc -l)
+                            rm trivy_temp.json
+                        else
+                            # Méthode alternative de comptage
+                            CRITICAL_COUNT=\$(trivy image --severity CRITICAL ${DOCKER_IMAGE}:${DOCKER_TAG} 2>/dev/null | grep -c "CRITICAL" || echo "0")
+                            HIGH_COUNT=\$(trivy image --severity HIGH ${DOCKER_IMAGE}:${DOCKER_TAG} 2>/dev/null | grep -c "HIGH" || echo "0")
+                        fi
+                        
+                        echo " "
+                        echo "🎯 RÉSUMÉ DES VULNÉRABILITÉS"
+                        echo "============================="
+                        echo "🔴 CRITICAL: \$CRITICAL_COUNT vulnérabilité(s)"
+                        echo "🟠 HIGH: \$HIGH_COUNT vulnérabilité(s)"
+                        
+                        # Statut final
+                        if [ "\$CRITICAL_COUNT" -gt 0 ]; then
+                            echo " "
+                            echo "🚨 ALERTE: \$CRITICAL_COUNT vulnérabilité(s) CRITIQUE(s) détectée(s)"
+                            echo "✅ Scan terminé - Vulnérabilités visibles ci-dessus"
+                        elif [ "\$HIGH_COUNT" -gt 0 ]; then
+                            echo " "
+                            echo "⚠️  ATTENTION: \$HIGH_COUNT vulnérabilité(s) HIGH détectée(s)" 
+                            echo "✅ Scan terminé - Vulnérabilités visibles ci-dessus"
+                        else
+                            echo " "
+                            echo "✅ AUCUNE vulnérabilité HIGH/CRITICAL détectée"
+                            echo "✅ Scan terminé avec succès"
+                        fi
                     """
                 }
             }
@@ -197,39 +246,65 @@ EOR
         success {
             echo "🎉 SUCCÈS - Pipeline DevSecOps complété!"
             
-            // 🔔 NOTIFICATION SLACK - SUCCÈS
-            slackSend(
-                channel: "${SLACK_CHANNEL}",
-                color: "good",
-                message: """🎉 SUCCÈS - Pipeline DevSecOps ${SONAR_PROJECT_NAME}
+            // Lecture des résultats Trivy pour la notification
+            script {
+                def trivyResult = sh(
+                    script: """
+                        # Tentative de récupération des compteurs
+                        CRITICAL_COUNT=\$(trivy image --severity CRITICAL ${DOCKER_IMAGE}:${DOCKER_TAG} 2>/dev/null | grep -c "CRITICAL" || echo "0")
+                        HIGH_COUNT=\$(trivy image --severity HIGH ${DOCKER_IMAGE}:${DOCKER_TAG} 2>/dev/null | grep -c "HIGH" || echo "0")
+                        echo "CRITICAL:\$CRITICAL_COUNT,HIGH:\$HIGH_COUNT"
+                    """,
+                    returnStdout: true
+                ).trim()
                 
+                def criticalCount = trivyResult.split(",")[0].split(":")[1]
+                def highCount = trivyResult.split(",")[1].split(":")[1]
+                
+                def trivyStatus = ""
+                if (criticalCount.toInteger() > 0) {
+                    trivyStatus = "🔴 $criticalCount CRITICAL, 🟠 $highCount HIGH"
+                } else if (highCount.toInteger() > 0) {
+                    trivyStatus = "🟠 $highCount HIGH"
+                } else {
+                    trivyStatus = "✅ Aucune vulnérabilité critique"
+                }
+            
+                // 🔔 NOTIFICATION SLACK - SUCCÈS
+                slackSend(
+                    channel: "${SLACK_CHANNEL}",
+                    color: "good",
+                    message: """🎉 SUCCÈS - Pipeline DevSecOps ${SONAR_PROJECT_NAME}
+                    
 📋 *INFORMATIONS DU BUILD :*
 • Projet: ${SONAR_PROJECT_NAME}
 • Build: #${env.BUILD_NUMBER}
 • Statut: SUCCÈS ✅
 • Durée: ${currentBuild.durationString}
-                
+                    
 📊 *RÉSULTATS DES ANALYSES :*
-                
+                    
 🔍 *SAST (ANALYSE STATIQUE) :*
    ✓ Outil: SonarQube
    ✓ Rapport: ${SONAR_HOST}/dashboard?id=${SONAR_PROJECT_KEY}
    ✓ Statut: Analyse terminée
-                
+                    
 📦 *SCA (DÉPENDANCES) :*
    ✓ Outil: OWASP Dependency-Check
    ✓ Résultat: Aucune vulnérabilité critique
    ✓ Niveau de risque: FAIBLE
-                
+                    
 🐳 *SÉCURITÉ CONTAINER :*
    ✓ Outil: Trivy
    ✓ Image: ${DOCKER_IMAGE}:${DOCKER_TAG}
-   ✓ Scan: Terminé
-                
+   ✓ Résultat: ${trivyStatus}
+   ✓ Détails: Voir les logs du build
+                    
 🔗 *LIENS UTILES :*
 • Build Jenkins: ${env.BUILD_URL}
 • SonarQube: ${SONAR_HOST}/dashboard?id=${SONAR_PROJECT_KEY}"""
-            )
+                )
+            }
         }
         
         failure {
