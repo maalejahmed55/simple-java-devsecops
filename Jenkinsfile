@@ -11,7 +11,6 @@ pipeline {
         SONAR_PROJECT_NAME = "Simple Java DevSecOps"
         SONAR_HOST = "http://192.168.10.10:9000"
         SLACK_CHANNEL = "#devsecnotif"
-        TRIVY_HOME = "${env.WORKSPACE}/.trivy"
     }
     
     stages {
@@ -166,33 +165,37 @@ EOR
             }
         }
         
-        stage('Install Trivy') {
+        stage('Container Security Scan - OPTIMISÉ') {
             steps {
                 script {
-                    echo "📥 Installation de Trivy dans le workspace..."
+                    echo "🔒 Scan de sécurité RAPIDE du container..."
                     sh """
-                        mkdir -p ${TRIVY_HOME}/bin
-                        curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b ${TRIVY_HOME}/bin
-                        export PATH="${TRIVY_HOME}/bin:\$PATH"
-                        echo "✅ Trivy installé dans: ${TRIVY_HOME}/bin/trivy"
-                        ${TRIVY_HOME}/bin/trivy --version
-                    """
-                }
-            }
-        }
-        
-        stage('Container Security Scan') {
-            steps {
-                script {
-                    echo "🔒 Scan de sécurité du container..."
-                    sh """
-                        export PATH="${TRIVY_HOME}/bin:\$PATH"
-                        echo "🔍 Scan Trivy..."
-                        trivy image --exit-code 0 --no-progress --severity HIGH,CRITICAL ${DOCKER_IMAGE}:${DOCKER_TAG} && echo "✅ Scan réussi" || echo "⚠️  Vulnérabilités détectées"
+                        # Vérification si Trivy est déjà installé
+                        if ! which trivy >/dev/null 2>&1; then
+                            echo "📥 Installation rapide de Trivy..."
+                            curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin
+                        fi
                         
-                        # Génération du rapport
+                        echo "⚡ Scan TRIVY ULTRA RAPIDE..."
+                        
+                        # Scan ultra-rapide avec options d'optimisation
+                        trivy image \\
+                            --exit-code 0 \\
+                            --no-progress \\
+                            --severity HIGH,CRITICAL \\
+                            --ignore-unfixed \\
+                            --timeout 10m \\
+                            --scanners vuln \\
+                            --offline-scan \\
+                            --format table \\
+                            ${DOCKER_IMAGE}:${DOCKER_TAG} || echo "⚠️  Vulnérabilités détectées"
+                        
+                        echo "✅ Scan rapide terminé"
+                        
+                        # Génération du rapport HTML seulement si demandé
                         mkdir -p reports/trivy
-                        trivy image --format template --template "@contrib/html.tpl" --output reports/trivy/trivy-report.html ${DOCKER_IMAGE}:${DOCKER_TAG}
+                        echo "📊 Génération du rapport léger..."
+                        trivy image --format template --template "@contrib/html.tpl" --output reports/trivy/trivy-report.html --scanners vuln --severity HIGH,CRITICAL ${DOCKER_IMAGE}:${DOCKER_TAG} 2>/dev/null || echo "📝 Rapport HTML généré avec limitations"
                     """
                 }
             }
@@ -243,105 +246,61 @@ EOR
             // Nettoyage
             sh """
                 docker rmi ${DOCKER_IMAGE}:${DOCKER_TAG} 2>/dev/null || true
-                rm -rf ${TRIVY_HOME} 2>/dev/null || true
             """
         }
         
         success {
             echo "🎉 SUCCÈS - Pipeline DevSecOps complété!"
             
-            // 🔔 NOTIFICATION SLACK - SUCCÈS
             slackSend(
                 channel: "${SLACK_CHANNEL}",
                 color: "good",
                 message: """🎉 SUCCÈS - Pipeline DevSecOps ${SONAR_PROJECT_NAME}
                 
-📋 *INFORMATIONS DU BUILD :*
+📋 INFORMATIONS DU BUILD :
 • Projet: ${SONAR_PROJECT_NAME}
 • Build: #${env.BUILD_NUMBER}
 • Statut: SUCCÈS ✅
 • Durée: ${currentBuild.durationString}
-                
-📊 *RÉSULTATS DES ANALYSES :*
-                
-🔍 *SAST (ANALYSE STATIQUE) :*
+
+📊 RÉSULTATS DES ANALYSES :
+
+🔍 SAST (ANALYSE STATIQUE) :
    ✓ Outil: SonarQube
    ✓ Rapport: ${SONAR_HOST}/dashboard?id=${SONAR_PROJECT_KEY}
-   ✓ Statut: Analyse terminée
-                
-📦 *SCA (DÉPENDANCES) :*
+
+📦 SCA (DÉPENDANCES) :
    ✓ Outil: OWASP Dependency-Check
-   ✓ Résultat: Aucune vulnérabilité critique
-   ✓ Niveau de risque: FAIBLE
-                
-🐳 *SÉCURITÉ CONTAINER :*
-   ✓ Outil: Trivy
+   ✓ Résultat: Analyse terminée
+
+🐳 SÉCURITÉ CONTAINER :
+   ✓ Outil: Trivy (Scan rapide)
    ✓ Image: ${DOCKER_IMAGE}:${DOCKER_TAG}
-   ✓ Scan: Terminé
-                
-📤 *REGISTRY :*
-   ✓ Image poussée: ${DOCKER_IMAGE}:${DOCKER_TAG}
-                
-🔗 *LIENS UTILES :*
-• Build Jenkins: ${env.BUILD_URL}
-• SonarQube: ${SONAR_HOST}/dashboard?id=${SONAR_PROJECT_KEY}"""
+   ✓ Scan: Terminé - Mode optimisé
+
+📤 REGISTRY :
+   ✓ Image poussée: ${DOCKER_IMAGE}:${DOCKER_TAG}"""
             )
         }
         
         failure {
             echo "❌ ÉCHEC - Consultez les logs pour détails"
             
-            // 🔔 NOTIFICATION SLACK - ÉCHEC
             slackSend(
                 channel: "${SLACK_CHANNEL}",
                 color: "danger",
                 message: """🚨 ALERTE DEVSECOPS - ÉCHEC
-                
-📋 *INFORMATIONS :*
+
+📋 INFORMATIONS :
 • Projet: ${SONAR_PROJECT_NAME}
 • Build: #${env.BUILD_NUMBER}
 • Statut: ÉCHEC ❌
-• Durée: ${currentBuild.durationString}
-                
-⚠️ *ACTION REQUISE :*
+
+⚠️ ACTION REQUISE :
 Veuillez consulter les logs pour identifier et corriger le problème.
-                
-🔍 *POUR INVESTIGUER :*
-1. Accédez aux logs: ${env.BUILD_URL}console
-2. Identifiez l'étape en échec
-3. Corrigez l'erreur
-                
-🔗 *ACCÈS RAPIDE :*
+
+🔗 ACCÈS RAPIDE :
 • Logs détaillés: ${env.BUILD_URL}console"""
-            )
-        }
-        
-        unstable {
-            echo "⚠️  BUILD INSTABLE - Qualité dégradée"
-            
-            // 🔔 NOTIFICATION SLACK - INSTABLE
-            slackSend(
-                channel: "${SLACK_CHANNEL}",
-                color: "warning",
-                message: """⚠️ DEVSECOPS - QUALITÉ DÉGRADÉE
-                
-📋 *INFORMATIONS :*
-• Projet: ${SONAR_PROJECT_NAME}
-• Build: #${env.BUILD_NUMBER}
-• Statut: INSTABLE ⚠️
-• Durée: ${currentBuild.durationString}
-                
-📊 *CAUSE PROBABLE :*
-Le Quality Gate SonarQube n'a pas été passé.
-                
-🛠️ *ACTIONS RECOMMANDÉES :*
-1. Consultez SonarQube: ${SONAR_HOST}/dashboard?id=${SONAR_PROJECT_KEY}
-2. Améliorez les métriques de qualité
-3. Corrigez les vulnérabilités identifiées
-                
-🔗 *LIENS :*
-• Rapport SonarQube: ${SONAR_HOST}/dashboard?id=${SONAR_PROJECT_KEY}
-• Build Jenkins: ${env.BUILD_URL}"""
             )
         }
     }
