@@ -157,6 +157,9 @@ EOR
                 script {
                     echo "🐳 Construction de l'image Docker..."
                     sh """
+                        # Nettoyage des images anciennes pour libérer de l'espace
+                        docker system prune -f || true
+                        
                         docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} .
                         echo "📸 Image créée:"
                         docker images | grep ${DOCKER_IMAGE} || echo "Aucune image trouvée"
@@ -191,26 +194,7 @@ EOR
                             ${DOCKER_IMAGE}:${DOCKER_TAG} || echo "⚠️  Vulnérabilités détectées"
                         
                         echo "✅ Scan rapide terminé"
-                        
-                        # Génération du rapport HTML seulement si demandé
-                        mkdir -p reports/trivy
-                        echo "📊 Génération du rapport léger..."
-                        trivy image --format template --template "@contrib/html.tpl" --output reports/trivy/trivy-report.html --scanners vuln --severity HIGH,CRITICAL ${DOCKER_IMAGE}:${DOCKER_TAG} 2>/dev/null || echo "📝 Rapport HTML généré avec limitations"
                     """
-                }
-            }
-            
-            post {
-                always {
-                    publishHTML([
-                        allowMissing: true,
-                        alwaysLinkToLastBuild: true,
-                        keepAll: true,
-                        reportDir: 'reports/trivy',
-                        reportFiles: 'trivy-report.html',
-                        reportName: 'Trivy Security Report',
-                        reportTitles: 'Scan de Sécurité Container'
-                    ])
                 }
             }
         }
@@ -218,14 +202,57 @@ EOR
         stage('Push Docker Image') {
             steps {
                 script {
-                    echo "📤 Pushing Docker image..."
-                    withCredentials([usernamePassword(credentialsId: 'docker-hub', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASSWORD')]) {
+                    echo "📤 Push de l'image Docker..."
+                    withCredentials([usernamePassword(
+                        credentialsId: 'docker-hub', 
+                        usernameVariable: 'DOCKER_USERNAME_CRED', 
+                        passwordVariable: 'DOCKER_PASSWORD'
+                    )]) {
                         sh """
-                            docker login -u ${DOCKER_USER} -p ${DOCKER_PASSWORD}
+                            # Debug: Vérification des variables
+                            echo "🔍 Debug credentials:"
+                            echo "User variable: DOCKER_USERNAME_CRED"
+                            echo "Image: ${DOCKER_IMAGE}:${DOCKER_TAG}"
+                            
+                            # Login à Docker Hub
+                            echo "🔐 Authentification à Docker Hub..."
+                            echo \"\${DOCKER_PASSWORD}\" | docker login -u \"\${DOCKER_USERNAME_CRED}\" --password-stdin
+                            
+                            # Tag de l'image si nécessaire
+                            echo "🏷️  Vérification des tags..."
+                            docker images | grep "${DOCKER_IMAGE}"
+                            
+                            # Push de l'image
+                            echo "🚀 Push de l'image..."
                             docker push ${DOCKER_IMAGE}:${DOCKER_TAG}
+                            
                             echo "✅ Image poussée avec succès: ${DOCKER_IMAGE}:${DOCKER_TAG}"
+                            
+                            # Vérification supplémentaire
+                            echo "📋 Liste des images locales:"
+                            docker images | head -10
                         """
                     }
+                }
+            }
+        }
+        
+        stage('Cleanup') {
+            steps {
+                script {
+                    echo "🧹 Nettoyage des ressources..."
+                    sh """
+                        # Nettoyage des images Docker pour libérer de l'espace
+                        docker rmi ${DOCKER_IMAGE}:${DOCKER_TAG} 2>/dev/null || echo "✅ Image déjà nettoyée"
+                        
+                        # Nettoyage des conteneurs arrêtés
+                        docker container prune -f 2>/dev/null || true
+                        
+                        # Nettoyage des réseaux non utilisés
+                        docker network prune -f 2>/dev/null || true
+                        
+                        echo "🧽 Nettoyage terminé"
+                    """
                 }
             }
         }
@@ -237,16 +264,10 @@ EOR
             echo "================================="
             echo "🔗 SAST (Code): ${SONAR_HOST}/dashboard?id=${SONAR_PROJECT_KEY}"
             echo "📁 SCA (Dépendances): Voir 'SCA OWASP Report' ci-dessus"
-            echo "🔒 Container Scan: Voir 'Trivy Security Report' ci-dessus"
             echo "🐳 Container: ${DOCKER_IMAGE}:${DOCKER_TAG}"
             
             archiveArtifacts artifacts: 'target/*.jar', fingerprint: true
             archiveArtifacts artifacts: 'reports/**/*', fingerprint: true
-            
-            // Nettoyage
-            sh """
-                docker rmi ${DOCKER_IMAGE}:${DOCKER_TAG} 2>/dev/null || true
-            """
         }
         
         success {
@@ -262,6 +283,7 @@ EOR
 • Build: #${env.BUILD_NUMBER}
 • Statut: SUCCÈS ✅
 • Durée: ${currentBuild.durationString}
+• Image Docker: ${DOCKER_IMAGE}:${DOCKER_TAG}
 
 📊 RÉSULTATS DES ANALYSES :
 
@@ -279,12 +301,23 @@ EOR
    ✓ Scan: Terminé - Mode optimisé
 
 📤 REGISTRY :
-   ✓ Image poussée: ${DOCKER_IMAGE}:${DOCKER_TAG}"""
+   ✓ Image poussée: ${DOCKER_IMAGE}:${DOCKER_TAG}
+   ✓ Docker Hub: https://hub.docker.com/r/${DOCKER_IMAGE}
+
+🔗 LIENS UTILES :
+• Build Jenkins: ${env.BUILD_URL}
+• SonarQube: ${SONAR_HOST}/dashboard?id=${SONAR_PROJECT_KEY}"""
             )
         }
         
         failure {
             echo "❌ ÉCHEC - Consultez les logs pour détails"
+            
+            script {
+                // Analyse de l'erreur pour mieux diagnostiquer
+                def currentResult = currentBuild.result
+                echo "🔍 Analyse de l'échec: ${currentResult}"
+            }
             
             slackSend(
                 channel: "${SLACK_CHANNEL}",
@@ -295,12 +328,22 @@ EOR
 • Projet: ${SONAR_PROJECT_NAME}
 • Build: #${env.BUILD_NUMBER}
 • Statut: ÉCHEC ❌
+• Étape en échec: Push Docker Image
+
+🔧 DIAGNOSTIC PROBABLE :
+• Problème d'authentification Docker Hub
+• Crédentials Jenkins mal configurés
+• Problème de réseau/connexion
+• Espace disque insuffisant
 
 ⚠️ ACTION REQUISE :
-Veuillez consulter les logs pour identifier et corriger le problème.
+1. Vérifiez les credentials Docker Hub dans Jenkins
+2. Vérifiez la connexion internet
+3. Consultez les logs détaillés
 
 🔗 ACCÈS RAPIDE :
-• Logs détaillés: ${env.BUILD_URL}console"""
+• Logs détaillés: ${env.BUILD_URL}console
+• Configuration credentials: ${env.JENKINS_URL}credentials/"""
             )
         }
     }
