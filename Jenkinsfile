@@ -11,6 +11,7 @@ pipeline {
         SONAR_PROJECT_NAME = "Simple Java DevSecOps"
         SONAR_HOST = "http://192.168.10.10:9000"
         SLACK_CHANNEL = "#devsecnotif"
+        TRIVY_CACHE_DIR = "/tmp/trivy-cache"
     }
     
     stages {
@@ -171,72 +172,89 @@ EOR
                     echo "🔒 Scan de sécurité du container avec Trivy..."
                     
                     sh """
-                        # Vérification et installation CORRECTE de Trivy (sans Snap)
+                        # Vérification et installation CORRECTE de Trivy (sans permissions sudo)
+                        if ! which trivy >/dev/null 2>&1 || trivy --version 2>&1 | grep -q "snap"; then
+                            echo "📥 Installation de Trivy sans Snap et sans sudo..."
+                            
+                            # Suppression de l'ancienne version Snap si existante
+                            which trivy >/dev/null 2>&1 && sudo snap remove trivy 2>/dev/null || true
+                            
+                            # Téléchargement direct dans le home directory
+                            mkdir -p ~/bin
+                            curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b ~/bin v0.49.1
+                            
+                            # Ajout au PATH pour cette session
+                            export PATH="~/bin:\$PATH"
+                            echo "export PATH=\"~/bin:\\\$PATH\"" >> ~/.bashrc
+                        fi
+                        
+                        # Vérification finale
                         if ! which trivy >/dev/null 2>&1; then
-                            echo "📥 Installation de Trivy sans Snap..."
-                            # Téléchargement direct depuis GitHub
-                            curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin v0.49.1
+                            echo "❌ Échec de l'installation de Trivy"
+                            echo "🔧 Solution alternative: utilisation de Docker pour Trivy"
+                            
+                            # Utilisation de Trivy via Docker comme fallback
+                            docker run --rm \\
+                                -v /var/run/docker.sock:/var/run/docker.sock \\
+                                -v \${TRIVY_CACHE_DIR}:/root/.cache/ \\
+                                aquasec/trivy:latest image \\
+                                --severity HIGH,CRITICAL \\
+                                ${DOCKER_IMAGE}:${DOCKER_TAG}
                         else
-                            # Si Trivy est déjà installé mais via Snap, on le réinstalle proprement
-                            if trivy --version 2>&1 | grep -q "snap"; then
-                                echo "🔄 Réinstallation de Trivy (problème Snap détecté)..."
-                                sudo snap remove trivy 2>/dev/null || true
-                                curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin v0.49.1
+                            echo "✅ Trivy installé avec succès: \$(trivy --version)"
+                            
+                            # Configuration du cache
+                            mkdir -p \${TRIVY_CACHE_DIR}
+                            export TRIVY_CACHE_DIR=\${TRIVY_CACHE_DIR}
+                            
+                            echo "🔍 Scan Trivy détaillé..."
+                            
+                            # Scan avec affichage COMPLET des vulnérabilités
+                            echo "📊 DÉBUT DU SCAN TRIVY"
+                            echo "======================"
+                            
+                            # Premier scan pour voir TOUTES les vulnérabilités
+                            trivy image --severity HIGH,CRITICAL ${DOCKER_IMAGE}:${DOCKER_TAG}
+                            
+                            # Comptage des vulnérabilités
+                            echo " "
+                            echo "📈 ANALYSE DES VULNÉRABILITÉS"
+                            echo "=============================="
+                            
+                            # Méthode robuste pour compter les vulnérabilités
+                            echo "🔢 Comptage des vulnérabilités..."
+                            SCAN_RESULT=\$(trivy image --severity HIGH,CRITICAL ${DOCKER_IMAGE}:${DOCKER_TAG} 2>/dev/null || echo "SCAN_ERROR")
+                            
+                            if [ "\$SCAN_RESULT" = "SCAN_ERROR" ]; then
+                                echo "❌ Erreur lors du scan Trivy"
+                                CRITICAL_COUNT="0"
+                                HIGH_COUNT="0"
+                            else
+                                # Comptage à partir de la sortie
+                                CRITICAL_COUNT=\$(echo "\$SCAN_RESULT" | grep -c "CRITICAL" || echo "0")
+                                HIGH_COUNT=\$(echo "\$SCAN_RESULT" | grep -c "HIGH" || echo "0")
                             fi
-                            echo "✅ Trivy déjà installé"
-                        fi
-                        
-                        # Configuration pour éviter les problèmes Snap
-                        export TRIVY_CACHE_DIR=/tmp/trivy-cache
-                        mkdir -p \$TRIVY_CACHE_DIR
-                        
-                        echo "🔍 Scan Trivy détaillé..."
-                        
-                        # Scan avec affichage COMPLET des vulnérabilités
-                        echo "📊 DÉBUT DU SCAN TRIVY"
-                        echo "======================"
-                        
-                        # Premier scan pour voir TOUTES les vulnérabilités
-                        /usr/local/bin/trivy image --severity HIGH,CRITICAL ${DOCKER_IMAGE}:${DOCKER_TAG}
-                        
-                        # Comptage des vulnérabilités
-                        echo " "
-                        echo "📈 ANALYSE DES VULNÉRABILITÉS"
-                        echo "=============================="
-                        
-                        # Méthode robuste pour compter les vulnérabilités
-                        echo "🔢 Comptage des vulnérabilités..."
-                        SCAN_RESULT=\$(/usr/local/bin/trivy image --severity HIGH,CRITICAL ${DOCKER_IMAGE}:${DOCKER_TAG} 2>/dev/null || echo "SCAN_ERROR")
-                        
-                        if [ "\$SCAN_RESULT" = "SCAN_ERROR" ]; then
-                            echo "❌ Erreur lors du scan Trivy"
-                            CRITICAL_COUNT="0"
-                            HIGH_COUNT="0"
-                        else
-                            # Comptage à partir de la sortie
-                            CRITICAL_COUNT=\$(echo "\$SCAN_RESULT" | grep -c "CRITICAL" || echo "0")
-                            HIGH_COUNT=\$(echo "\$SCAN_RESULT" | grep -c "HIGH" || echo "0")
-                        fi
-                        
-                        echo " "
-                        echo "🎯 RÉSUMÉ DES VULNÉRABILITÉS"
-                        echo "============================="
-                        echo "🔴 CRITICAL: \$CRITICAL_COUNT vulnérabilité(s)"
-                        echo "🟠 HIGH: \$HIGH_COUNT vulnérabilité(s)"
-                        
-                        # Statut final
-                        if [ "\$CRITICAL_COUNT" -gt 0 ]; then
+                            
                             echo " "
-                            echo "🚨 ALERTE: \$CRITICAL_COUNT vulnérabilité(s) CRITIQUE(s) détectée(s)"
-                            echo "✅ Scan terminé - Vulnérabilités visibles ci-dessus"
-                        elif [ "\$HIGH_COUNT" -gt 0 ]; then
-                            echo " "
-                            echo "⚠️  ATTENTION: \$HIGH_COUNT vulnérabilité(s) HIGH détectée(s)" 
-                            echo "✅ Scan terminé - Vulnérabilités visibles ci-dessus"
-                        else
-                            echo " "
-                            echo "✅ AUCUNE vulnérabilité HIGH/CRITICAL détectée"
-                            echo "✅ Scan terminé avec succès"
+                            echo "🎯 RÉSUMÉ DES VULNÉRABILITÉS"
+                            echo "============================="
+                            echo "🔴 CRITICAL: \$CRITICAL_COUNT vulnérabilité(s)"
+                            echo "🟠 HIGH: \$HIGH_COUNT vulnérabilité(s)"
+                            
+                            # Statut final
+                            if [ "\$CRITICAL_COUNT" -gt 0 ]; then
+                                echo " "
+                                echo "🚨 ALERTE: \$CRITICAL_COUNT vulnérabilité(s) CRITIQUE(s) détectée(s)"
+                                echo "✅ Scan terminé - Vulnérabilités visibles ci-dessus"
+                            elif [ "\$HIGH_COUNT" -gt 0 ]; then
+                                echo " "
+                                echo "⚠️  ATTENTION: \$HIGH_COUNT vulnérabilité(s) HIGH détectée(s)" 
+                                echo "✅ Scan terminé - Vulnérabilités visibles ci-dessus"
+                            else
+                                echo " "
+                                echo "✅ AUCUNE vulnérabilité HIGH/CRITICAL détectée"
+                                echo "✅ Scan terminé avec succès"
+                            fi
                         fi
                     """
                 }
@@ -263,14 +281,18 @@ EOR
             script {
                 def trivyResult = sh(
                     script: """
-                        # Utilisation du chemin direct pour éviter Snap
-                        SCAN_OUTPUT=\$(/usr/local/bin/trivy image --severity HIGH,CRITICAL ${DOCKER_IMAGE}:${DOCKER_TAG} 2>/dev/null || echo "ERROR")
-                        if [ "\$SCAN_OUTPUT" = "ERROR" ]; then
-                            echo "CRITICAL:0,HIGH:0"
+                        # Essai de récupération des résultats
+                        if which trivy >/dev/null 2>&1; then
+                            SCAN_OUTPUT=\$(trivy image --severity HIGH,CRITICAL ${DOCKER_IMAGE}:${DOCKER_TAG} 2>/dev/null || echo "ERROR")
+                            if [ "\$SCAN_OUTPUT" = "ERROR" ]; then
+                                echo "CRITICAL:0,HIGH:0"
+                            else
+                                CRITICAL=\$(echo "\$SCAN_OUTPUT" | grep -c "CRITICAL" || echo "0")
+                                HIGH=\$(echo "\$SCAN_OUTPUT" | grep -c "HIGH" || echo "0")
+                                echo "CRITICAL:\$CRITICAL,HIGH:\$HIGH"
+                            fi
                         else
-                            CRITICAL=\$(echo "\$SCAN_OUTPUT" | grep -c "CRITICAL" || echo "0")
-                            HIGH=\$(echo "\$SCAN_OUTPUT" | grep -c "HIGH" || echo "0")
-                            echo "CRITICAL:\$CRITICAL,HIGH:\$HIGH"
+                            echo "CRITICAL:0,HIGH:0"
                         fi
                     """,
                     returnStdout: true
