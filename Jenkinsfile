@@ -11,6 +11,7 @@ pipeline {
         SONAR_PROJECT_NAME = "Simple Java DevSecOps"
         SONAR_HOST = "http://192.168.10.10:9000"
         SLACK_CHANNEL = "#devsecnotif"
+        TRIVY_HOME = "${env.WORKSPACE}/.trivy"
     }
     
     stages {
@@ -165,18 +166,63 @@ EOR
             }
         }
         
+        stage('Install Trivy') {
+            steps {
+                script {
+                    echo "📥 Installation de Trivy dans le workspace..."
+                    sh """
+                        mkdir -p ${TRIVY_HOME}/bin
+                        curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b ${TRIVY_HOME}/bin
+                        export PATH="${TRIVY_HOME}/bin:\$PATH"
+                        echo "✅ Trivy installé dans: ${TRIVY_HOME}/bin/trivy"
+                        ${TRIVY_HOME}/bin/trivy --version
+                    """
+                }
+            }
+        }
+        
         stage('Container Security Scan') {
             steps {
                 script {
                     echo "🔒 Scan de sécurité du container..."
                     sh """
-                        which trivy >/dev/null 2>&1 || (
-                            curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
-                        )
-                        
+                        export PATH="${TRIVY_HOME}/bin:\$PATH"
                         echo "🔍 Scan Trivy..."
                         trivy image --exit-code 0 --no-progress --severity HIGH,CRITICAL ${DOCKER_IMAGE}:${DOCKER_TAG} && echo "✅ Scan réussi" || echo "⚠️  Vulnérabilités détectées"
+                        
+                        # Génération du rapport
+                        mkdir -p reports/trivy
+                        trivy image --format template --template "@contrib/html.tpl" --output reports/trivy/trivy-report.html ${DOCKER_IMAGE}:${DOCKER_TAG}
                     """
+                }
+            }
+            
+            post {
+                always {
+                    publishHTML([
+                        allowMissing: true,
+                        alwaysLinkToLastBuild: true,
+                        keepAll: true,
+                        reportDir: 'reports/trivy',
+                        reportFiles: 'trivy-report.html',
+                        reportName: 'Trivy Security Report',
+                        reportTitles: 'Scan de Sécurité Container'
+                    ])
+                }
+            }
+        }
+        
+        stage('Push Docker Image') {
+            steps {
+                script {
+                    echo "📤 Pushing Docker image..."
+                    withCredentials([usernamePassword(credentialsId: 'docker-hub', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASSWORD')]) {
+                        sh """
+                            docker login -u ${DOCKER_USER} -p ${DOCKER_PASSWORD}
+                            docker push ${DOCKER_IMAGE}:${DOCKER_TAG}
+                            echo "✅ Image poussée avec succès: ${DOCKER_IMAGE}:${DOCKER_TAG}"
+                        """
+                    }
                 }
             }
         }
@@ -188,10 +234,17 @@ EOR
             echo "================================="
             echo "🔗 SAST (Code): ${SONAR_HOST}/dashboard?id=${SONAR_PROJECT_KEY}"
             echo "📁 SCA (Dépendances): Voir 'SCA OWASP Report' ci-dessus"
+            echo "🔒 Container Scan: Voir 'Trivy Security Report' ci-dessus"
             echo "🐳 Container: ${DOCKER_IMAGE}:${DOCKER_TAG}"
             
             archiveArtifacts artifacts: 'target/*.jar', fingerprint: true
             archiveArtifacts artifacts: 'reports/**/*', fingerprint: true
+            
+            // Nettoyage
+            sh """
+                docker rmi ${DOCKER_IMAGE}:${DOCKER_TAG} 2>/dev/null || true
+                rm -rf ${TRIVY_HOME} 2>/dev/null || true
+            """
         }
         
         success {
@@ -225,6 +278,9 @@ EOR
    ✓ Outil: Trivy
    ✓ Image: ${DOCKER_IMAGE}:${DOCKER_TAG}
    ✓ Scan: Terminé
+                
+📤 *REGISTRY :*
+   ✓ Image poussée: ${DOCKER_IMAGE}:${DOCKER_TAG}
                 
 🔗 *LIENS UTILES :*
 • Build Jenkins: ${env.BUILD_URL}
